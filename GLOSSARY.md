@@ -12,13 +12,21 @@ _Avoid_: Pattern, design
 The original PDF one or more charts were imported from. It is kept as the reference for what the designer actually printed. A PDF that holds several separate designs produces several charts.
 _Avoid_: Original, file, upload
 
+**PDF style**:
+One way a source PDF prints a chart (for example symbols on white, symbols on color, or color blocks). A PDF that prints the same chart in several PDF styles still yields one chart.
+_Avoid_: Print style, variant, version, copy, display style
+
 **Display style**:
-How a chart is drawn on screen (symbols only, color blocks, or color with symbols). It is a viewing choice, so switching it never changes the chart. A PDF that prints the same chart in several styles still yields one chart.
+How the app draws a chart on screen (symbols only, color blocks, or color with symbols). It is a viewing choice, so switching it never changes the chart, and it is independent of the PDF styles in the source PDF.
 _Avoid_: Variant, print style, view mode
 
 **Correction**:
 A change to a chart that makes it match its source PDF more closely, fixing something the import got wrong. Every project of that chart sees it.
 _Avoid_: Fix, edit, adjustment
+
+**Import issue**:
+A problem the import finds in a chart that suggests it doesn't match its source PDF: a legend count mismatch, a symbol not in the legend, a legend entry with no stitches, or a size mismatch. Each one belongs to a chart, never to a project, and names the cells it concerns; it goes away once corrections make it no longer true, or once the stitcher dismisses it as matching the source PDF.
+_Avoid_: Warning, error, flag, problem, discrepancy
 
 **Symbol**:
 The mark printed in a chart cell that tells the stitcher which legend entry belongs there. It is identified by its font and character code, or by its drawn shape when it isn't text.
