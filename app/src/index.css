@@ -1,7 +1,17 @@
 :root {
-  --text: #4a4350;
-  --text-h: #1d1722;
-  --bg: #fbf7f2;
+  --gray: light-dark(#4a4350, #b5adba);
+  --black-white: light-dark(#1d1722, #f3eff5);
+  --beige-black: light-dark(#fbf7f2, #19161c);
+  --emerald: light-dark(#1f6b52, #6dbb9d);
+  --sienna: light-dark(#a85a2a, #dd9a6c);
+  --plum: light-dark(#7a3b69, #c595b8);
+
+  --text: var(--gray);
+  --text-h: var(--black-white);
+  --bg: var(--beige-black);
+  --primary: var(--emerald);
+  --secondary: var(--sienna);
+  --tertiary: var(--plum);
 
   font: 18px/145% system-ui, 'Segoe UI', Roboto, sans-serif;
   color-scheme: light dark;
@@ -9,12 +19,12 @@
   background: var(--bg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #b5adba;
-    --text-h: #f3eff5;
-    --bg: #19161c;
-  }
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 body {
