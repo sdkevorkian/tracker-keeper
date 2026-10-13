@@ -1,54 +1,16 @@
-# React + TypeScript + Vite
+# tracker-keeper
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A browser app (Chrome and Edge) for importing, verifying and tracking cross stitch charts. It installs as a PWA and works offline once loaded.
 
-Currently, two official plugins are available:
+## Scripts
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `npm run dev`: start the dev server
+- `npm test`: run the Vitest suite once (`npm run test:watch` to watch)
+- `npm run lint`: lint with oxlint
+- `npm run build`: typecheck and build for production
+- `npm run preview`: serve the production build, including the service worker
+- `npm run generate-pwa-assets`: regenerate the PWA icons from `public/favicon.svg`
 
-## React Compiler
+## Deploy
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      # tracker-keeper
-
-      A React and TypeScript application powered by Vite.
-
-      ## Getting started
-
-      ```sh
-      npm install
-      npm run dev
-      ```
-
-      ## Scripts
-
-      - `npm run dev` starts the Vite development server.
-      - `npm run build` type-checks and creates a production build.
-      - `npm run lint` runs Oxlint.
-      - `npm run lint:fix` applies Oxlint's automatic fixes.
-      - `npm run preview` serves the production build locally.
-export default defineConfig([
+Pushes to `main` run lint, build and tests, then deploy `dist` to GitHub Pages at `/tracker-keeper/`. The repo's Pages source must be set to "GitHub Actions".
