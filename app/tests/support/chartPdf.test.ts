@@ -41,7 +41,7 @@ test('cells need not be square, and a dot leaves a cell blank', async () => {
   ])
 })
 
-test('a grid key with no symbol is a mistake in the test, not a blank cell', () => {
+test('a grid character with no symbol is a mistake in the test, not a blank cell', () => {
   expect(() =>
     buildChartPdf({
       fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
@@ -51,7 +51,17 @@ test('a grid key with no symbol is a mistake in the test, not a blank cell', () 
   ).toThrow(/"\?"/)
 })
 
-test('a legend page prints each row as its symbol followed by thread, name, strands and count', async () => {
+test('a symbol in a font that is not embedded is a mistake in the test', () => {
+  expect(() =>
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSqaures', code: 0x41 } },
+      pages: [{ type: 'chart', cell: { width: 10, height: 10 }, grid: ['#'] }],
+    }),
+  ).toThrow(/"#".*"StitchSqaures"/)
+})
+
+test('a legend page prints each legend entry as its symbol followed by thread, name, strands and count', async () => {
   const pdf = await readPdf(
     buildChartPdf({
       fonts: { StitchSquares: { glyphs: { 0x41: 'square', 0x42: 'triangle' } } },
@@ -62,9 +72,9 @@ test('a legend page prints each row as its symbol followed by thread, name, stra
       pages: [
         {
           type: 'legend',
-          rows: [
-            { symbol: '#', brand: 'DMC', code: '310', name: 'Black', strands: 2, count: 125 },
-            { symbol: '^', brand: 'Anchor', code: '403', name: 'Black', strands: 1, count: 7 },
+          entries: [
+            { symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 125 },
+            { symbol: '^', thread: { brand: 'Anchor', code: '403' }, name: 'Black', strands: 1, count: 7 },
           ],
         },
       ],
@@ -95,7 +105,10 @@ test('a PDF can hold pages that are neither chart nor legend, in the order given
       pages: [
         { type: 'text', lines: ['Test Sampler', 'A synthetic chart'] },
         { type: 'chart', cell: { width: 10, height: 10 }, grid: ['#'] },
-        { type: 'legend', rows: [{ symbol: '#', brand: 'DMC', code: '310', name: 'Black', strands: 2, count: 1 }] },
+        {
+          type: 'legend',
+          entries: [{ symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 1 }],
+        },
         { type: 'text', lines: ['Use 2 strands (full cross stitch) \\ 1 strand backstitch'] },
       ],
     }),

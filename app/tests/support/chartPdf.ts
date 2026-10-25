@@ -5,7 +5,7 @@ import { buildTrueTypeFont, type Shape } from './trueTypeFont.ts'
 export interface ChartPdfDescription {
   /** Embedded symbol fonts, by the name written to the PDF. */
   fonts: Record<string, FontDescription>
-  /** One-character keys used in chart grids and legend rows. */
+  /** The chart's symbols, by the one-character name chart grids and legend entries use. */
   symbols: Record<string, SymbolDescription>
   pages: PageDescription[]
 }
@@ -28,13 +28,13 @@ export interface ChartPage {
   type: 'chart'
   /** Cell size in points. Cells need not be square. */
   cell: { width: number; height: number }
-  /** One string per row, one symbol key per cell, '.' for a blank cell. */
+  /** One string per row, one symbol name per cell, '.' for a blank cell. */
   grid: string[]
 }
 
 export interface LegendPage {
   type: 'legend'
-  rows: LegendRow[]
+  entries: LegendEntry[]
 }
 
 /** A page that is neither chart nor legend, such as a cover or instructions. */
@@ -43,16 +43,20 @@ export interface TextPage {
   lines: string[]
 }
 
-export interface LegendRow {
-  /** Symbol key, as used in chart grids. */
+export interface LegendEntry {
+  /** Symbol name, as used in chart grids. */
   symbol: string
-  brand: string
-  /** Thread code, for example '310'. */
-  code: string
+  thread: Thread
   name: string
   strands: number
   /** The stitch count the legend prints. */
   count: number
+}
+
+export interface Thread {
+  brand: string
+  /** For example '310'. */
+  code: string
 }
 
 const PAGE_WIDTH = 612
@@ -195,10 +199,18 @@ function text(x: number, y: number, value: string) {
   return `BT /${TEXT_FONT} ${TEXT_SIZE} Tf 1 0 0 1 ${x} ${y} Tm ${pdfString(value)} Tj ET`
 }
 
-function symbolFor(key: string, symbols: Record<string, SymbolDescription>) {
-  const symbol = symbols[key]
-  if (!symbol) throw new Error(`Chart uses "${key}", which is not in symbols`)
+function symbolFor(name: string, symbols: Record<string, SymbolDescription>) {
+  const symbol = symbols[name]
+  if (!symbol) throw new Error(`Chart uses "${name}", which is not in symbols`)
   return symbol
+}
+
+function checkSymbolFonts(description: ChartPdfDescription) {
+  for (const [name, symbol] of Object.entries(description.symbols)) {
+    if (!(symbol.font in description.fonts)) {
+      throw new Error(`Symbol "${name}" uses font "${symbol.font}", which is not in fonts`)
+    }
+  }
 }
 
 function textContent(page: TextPage) {
@@ -206,18 +218,18 @@ function textContent(page: TextPage) {
 }
 
 function legendContent(page: LegendPage, symbols: Record<string, SymbolDescription>, fontKeys: Map<string, string>) {
-  return page.rows
-    .flatMap((row, i) => {
+  return page.entries
+    .flatMap((entry, i) => {
       const y = PAGE_HEIGHT - MARGIN - (i + 1) * LEGEND_ROW_HEIGHT
-      const symbol = symbolFor(row.symbol, symbols)
+      const symbol = symbolFor(entry.symbol, symbols)
       const column = (name: keyof typeof LEGEND_COLUMNS) => MARGIN + LEGEND_COLUMNS[name]
       return [
         `BT /${fontKeys.get(symbol.font)} ${TEXT_SIZE} Tf 1 0 0 1 ${column('symbol')} ${y} Tm ${hex(symbol.code)} Tj ET`,
-        text(column('brand'), y, row.brand),
-        text(column('code'), y, row.code),
-        text(column('name'), y, row.name),
-        text(column('strands'), y, String(row.strands)),
-        text(column('count'), y, String(row.count)),
+        text(column('brand'), y, entry.thread.brand),
+        text(column('code'), y, entry.thread.code),
+        text(column('name'), y, entry.name),
+        text(column('strands'), y, String(entry.strands)),
+        text(column('count'), y, String(entry.count)),
       ]
     })
     .join('\n')
@@ -229,9 +241,9 @@ function chartContent(page: ChartPage, symbols: Record<string, SymbolDescription
   const top = PAGE_HEIGHT - MARGIN
   const ops: string[] = []
   page.grid.forEach((row, rowIndex) => {
-    ;[...row].forEach((key, column) => {
-      if (key === BLANK) return
-      const symbol = symbolFor(key, symbols)
+    ;[...row].forEach((name, column) => {
+      if (name === BLANK) return
+      const symbol = symbolFor(name, symbols)
       const x = MARGIN + column * width + (width - size) / 2
       const y = top - (rowIndex + 1) * height + (height - size) / 2
       ops.push(`BT /${fontKeys.get(symbol.font)} ${size} Tf 1 0 0 1 ${x} ${y} Tm ${hex(symbol.code)} Tj ET`)
@@ -241,6 +253,7 @@ function chartContent(page: ChartPage, symbols: Record<string, SymbolDescription
 }
 
 export function buildChartPdf(description: ChartPdfDescription): Uint8Array {
+  checkSymbolFonts(description)
   const pdf = new PdfWriter()
   const catalog = pdf.reserve()
   const pagesId = pdf.reserve()
