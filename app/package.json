@@ -5,13 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run typecheck && vite build",
+    "typecheck": "tsc -b",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate-pwa-assets": "pwa-assets-generator"
+    "generate-pwa-assets": "pwa-assets-generator",
+    "prepare": "cd .. && husky app/.husky"
   },
   "dependencies": {
     "pdfjs-dist": "^6.4.299",
@@ -27,6 +29,7 @@
     "@types/react-dom": "^19.2.7",
     "@vite-pwa/assets-generator": "^2.0.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "husky": "^9.1.7",
     "jsdom": "^30.1.2",
     "opentype.js": "^2.0.0",
     "oxlint": "^1.0.0",
