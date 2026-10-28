@@ -149,6 +149,38 @@ test('a cover page and an instructions page are ignored', async () => {
   expect(withExtraPages.charts).toBe(1)
 })
 
+test('an info page with a ruled table is not a chart', async () => {
+  const workspace = createWorkspace()
+
+  await workspace.importPdf(
+    buildChartPdf({
+      fonts: { StitchSymbols: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSymbols', code: 0x41 } },
+      pages: [
+        { type: 'chart', cell: { width: 10, height: 10 }, grid: ['##', '#.'] },
+        {
+          type: 'legend',
+          entries: [{ symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 3 }],
+        },
+        {
+          type: 'table',
+          cell: { width: 100, height: 16 },
+          rows: [
+            ['Title', 'Test Sampler'],
+            ['Grid Size', '2W x 2H'],
+            ['Fabric', '14 count Aida'],
+            ['Stitches', '3'],
+          ],
+        },
+      ],
+    }),
+  )
+
+  expect([...workspace.state.charts.values()].map(({ width, height }) => ({ width, height }))).toEqual([
+    { width: 2, height: 2 },
+  ])
+})
+
 test('subscribers hear about an imported chart until they unsubscribe', async () => {
   const workspace = createWorkspace()
   const pdf = buildChartPdf({

@@ -63,6 +63,37 @@ test('a chart page draws a solid grid line along every row and column edge', asy
   expect(relative).toHaveLength(7)
 })
 
+test('a table page draws a ruled grid with text in its cells, like a chart info page', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: {},
+      symbols: {},
+      pages: [
+        {
+          type: 'table',
+          cell: { width: 100, height: 16 },
+          rows: [
+            ['Title', 'Test Sampler'],
+            ['Grid Size', '90W x 90H'],
+          ],
+        },
+      ],
+    }),
+  )
+
+  const page = pdf.pages[0]
+  expect(page.lines).toHaveLength(3 + 3)
+  const left = Math.min(...page.lines.map((line) => line.x1))
+  const top = Math.max(...page.lines.map((line) => line.y1))
+  const cellOf = (text: { x: number; y: number }) => [Math.floor((top - text.y) / 16), Math.floor((text.x - left) / 100)]
+  expect(page.text.map((text) => ({ str: text.str, cell: cellOf(text) }))).toEqual([
+    { str: 'Title', cell: [0, 0] },
+    { str: 'Test Sampler', cell: [0, 1] },
+    { str: 'Grid Size', cell: [1, 0] },
+    { str: '90W x 90H', cell: [1, 1] },
+  ])
+})
+
 test('a grid character with no symbol is a mistake in the test, not a blank cell', () => {
   expect(() =>
     buildChartPdf({

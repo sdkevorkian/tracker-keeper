@@ -67,17 +67,29 @@ function band(edges: number[], value: number, descending = false) {
   return undefined
 }
 
-function placeSymbols(page: PagePrimitives, grid: Grid) {
+function placeGlyphs(page: PagePrimitives, grid: Grid) {
   const width = grid.xs.length - 1
-  const placed: { cell: number; key: string; symbol: SymbolKey }[] = []
+  const placed: { cell: number; key: string }[] = []
   for (const glyph of page.glyphs) {
     const { x, y } = centre(glyph.box)
     const column = band(grid.xs, x)
     const row = band(grid.ys, y, true)
     if (column === undefined || row === undefined) continue
-    placed.push({ cell: row * width + column, key: symbolKey(glyph), symbol: { font: glyph.font, code: glyph.code } })
+    placed.push({ cell: row * width + column, key: symbolKey(glyph) })
   }
   return placed
+}
+
+/**
+ * A chart cell holds at most one mark; a table cell holds words. A grid whose
+ * occupied cells mostly hold several glyphs is a table, such as an info page.
+ * Empty grids still count as charts, so a real chart is never dropped here.
+ */
+function holdsText(placed: { cell: number }[]) {
+  const perCell = new Map<number, number>()
+  for (const { cell } of placed) perCell.set(cell, (perCell.get(cell) ?? 0) + 1)
+  const crowded = [...perCell.values()].filter((count) => count > 1).length
+  return crowded > perCell.size / 2
 }
 
 /**
@@ -128,14 +140,16 @@ function readLegendRow(line: Glyph[], symbols: Set<string>): LegendEntry | undef
 }
 
 export function parseCharts(pages: PagePrimitives[]): ParsedChart[] {
-  const charts = pages.flatMap((page) => {
+  const charts: { grid: Grid; placed: { cell: number; key: string }[] }[] = []
+  const others: PagePrimitives[] = []
+  for (const page of pages) {
     const grid = findGrid(page)
-    return grid ? [{ grid, placed: placeSymbols(page, grid) }] : []
-  })
+    const placed = grid && placeGlyphs(page, grid)
+    if (grid && placed && !holdsText(placed)) charts.push({ grid, placed })
+    else others.push(page)
+  }
   const symbols = new Set(charts.flatMap(({ placed }) => placed.map(({ key }) => key)))
-  const legend = pages
-    .filter((page) => !findGrid(page))
-    .flatMap((page) => linesOf(page.glyphs).flatMap((line) => readLegendRow(line, symbols) ?? []))
+  const legend = others.flatMap((page) => linesOf(page.glyphs).flatMap((line) => readLegendRow(line, symbols) ?? []))
   const entryOf = new Map(legend.map((entry, i) => [symbolKey(entry.symbol), i + 1]))
 
   return charts.map(({ grid, placed }) => {
