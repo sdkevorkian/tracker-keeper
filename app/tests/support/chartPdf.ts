@@ -68,6 +68,7 @@ const TEXT_FONT = 'Helv'
 const TEXT_SIZE = 10
 const LINE_HEIGHT = 14
 const LEGEND_ROW_HEIGHT = 16
+const GRID_LINE_WIDTH = 0.5
 const LEGEND_COLUMNS = { symbol: 0, brand: 24, code: 74, name: 114, strands: 284, count: 324 }
 
 // What the ToUnicode map says each shape is.
@@ -239,7 +240,19 @@ function chartContent(page: ChartPage, symbols: Record<string, SymbolDescription
   const { width, height } = page.cell
   const size = Math.min(width, height)
   const top = PAGE_HEIGHT - MARGIN
-  const ops: string[] = []
+  const rows = page.grid.length
+  const columns = Math.max(...page.grid.map((row) => row.length))
+  const right = MARGIN + columns * width
+  const bottom = top - rows * height
+  const ops = [`${GRID_LINE_WIDTH} w`]
+  for (let row = 0; row <= rows; row++) {
+    const y = top - row * height
+    ops.push(`${MARGIN} ${y} m ${right} ${y} l S`)
+  }
+  for (let column = 0; column <= columns; column++) {
+    const x = MARGIN + column * width
+    ops.push(`${x} ${top} m ${x} ${bottom} l S`)
+  }
   page.grid.forEach((row, rowIndex) => {
     ;[...row].forEach((name, column) => {
       if (name === BLANK) return
