@@ -13,4 +13,4 @@ A browser app (Chrome and Edge) for importing, verifying and tracking cross stit
 
 ## Deploy
 
-Pushes to `main` run lint, build and tests, then deploy `dist` to GitHub Pages at `/tracker-keeper/`. The repo's Pages source must be set to "GitHub Actions".
+Pushes to `main` run lint, build and tests. Deploying is switched off until the app is ready to share: the `deploy` job in `.github/workflows/ci.yml` is commented out. Once it is turned back on, every push to `main` will deploy `dist` to GitHub Pages at `/tracker-keeper/`. The repo's Pages source must be set to "GitHub Actions".
