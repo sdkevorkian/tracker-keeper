@@ -33,5 +33,7 @@ export default defineConfig({
   ],
   test: {
     environment: 'jsdom',
+    // The app runs the modern pdf.js build in Chromium; Node needs the legacy one.
+    alias: [{ find: /^pdfjs-dist$/, replacement: 'pdfjs-dist/legacy/build/pdf.mjs' }],
   },
 })

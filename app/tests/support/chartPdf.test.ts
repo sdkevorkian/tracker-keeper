@@ -41,6 +41,59 @@ test('cells need not be square, and a dot leaves a cell blank', async () => {
   ])
 })
 
+test('a chart page draws a solid grid line along every row and column edge', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [{ type: 'chart', cell: { width: 8, height: 12 }, grid: ['#.#', '.#.'] }],
+    }),
+  )
+
+  const lines = pdf.pages[0].lines
+  const left = Math.min(...lines.flatMap((line) => [line.x1, line.x2]))
+  const top = Math.max(...lines.flatMap((line) => [line.y1, line.y2]))
+  const relative = lines.map(({ x1, y1, x2, y2 }) => ({ x1: x1 - left, y1: top - y1, x2: x2 - left, y2: top - y2 }))
+  expect(relative).toEqual(
+    expect.arrayContaining([
+      ...[0, 12, 24].map((y) => ({ x1: 0, y1: y, x2: 24, y2: y })),
+      ...[0, 8, 16, 24].map((x) => ({ x1: x, y1: 0, x2: x, y2: 24 })),
+    ]),
+  )
+  expect(relative).toHaveLength(7)
+})
+
+test('a table page draws a ruled grid with text in its cells, like a chart info page', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: {},
+      symbols: {},
+      pages: [
+        {
+          type: 'table',
+          cell: { width: 100, height: 16 },
+          rows: [
+            ['Title', 'Test Sampler'],
+            ['Grid Size', '90W x 90H'],
+          ],
+        },
+      ],
+    }),
+  )
+
+  const page = pdf.pages[0]
+  expect(page.lines).toHaveLength(3 + 3)
+  const left = Math.min(...page.lines.map((line) => line.x1))
+  const top = Math.max(...page.lines.map((line) => line.y1))
+  const cellOf = (text: { x: number; y: number }) => [Math.floor((top - text.y) / 16), Math.floor((text.x - left) / 100)]
+  expect(page.text.map((text) => ({ str: text.str, cell: cellOf(text) }))).toEqual([
+    { str: 'Title', cell: [0, 0] },
+    { str: 'Test Sampler', cell: [0, 1] },
+    { str: 'Grid Size', cell: [1, 0] },
+    { str: '90W x 90H', cell: [1, 1] },
+  ])
+})
+
 test('a grid character with no symbol is a mistake in the test, not a blank cell', () => {
   expect(() =>
     buildChartPdf({

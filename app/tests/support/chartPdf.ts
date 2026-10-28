@@ -22,7 +22,7 @@ export interface SymbolDescription {
   code: number
 }
 
-export type PageDescription = ChartPage | LegendPage | TextPage
+export type PageDescription = ChartPage | LegendPage | TextPage | TablePage
 
 export interface ChartPage {
   type: 'chart'
@@ -41,6 +41,14 @@ export interface LegendPage {
 export interface TextPage {
   type: 'text'
   lines: string[]
+}
+
+/** A ruled table of text, such as the info page charting programs print. */
+export interface TablePage {
+  type: 'table'
+  cell: { width: number; height: number }
+  /** One array per row, one string per cell. */
+  rows: string[][]
 }
 
 export interface LegendEntry {
@@ -68,6 +76,7 @@ const TEXT_FONT = 'Helv'
 const TEXT_SIZE = 10
 const LINE_HEIGHT = 14
 const LEGEND_ROW_HEIGHT = 16
+const GRID_LINE_WIDTH = 0.5
 const LEGEND_COLUMNS = { symbol: 0, brand: 24, code: 74, name: 114, strands: 284, count: 324 }
 
 // What the ToUnicode map says each shape is.
@@ -235,11 +244,41 @@ function legendContent(page: LegendPage, symbols: Record<string, SymbolDescripti
     .join('\n')
 }
 
+/** A solid grid of `rows` × `columns` cells from the top left margin. */
+function gridLines(cell: { width: number; height: number }, rows: number, columns: number) {
+  const top = PAGE_HEIGHT - MARGIN
+  const right = MARGIN + columns * cell.width
+  const bottom = top - rows * cell.height
+  const ops = [`${GRID_LINE_WIDTH} w`]
+  for (let row = 0; row <= rows; row++) {
+    const y = top - row * cell.height
+    ops.push(`${MARGIN} ${y} m ${right} ${y} l S`)
+  }
+  for (let column = 0; column <= columns; column++) {
+    const x = MARGIN + column * cell.width
+    ops.push(`${x} ${top} m ${x} ${bottom} l S`)
+  }
+  return ops
+}
+
+function tableContent(page: TablePage) {
+  const { width, height } = page.cell
+  const top = PAGE_HEIGHT - MARGIN
+  const ops = gridLines(page.cell, page.rows.length, Math.max(...page.rows.map((row) => row.length)))
+  page.rows.forEach((row, rowIndex) => {
+    row.forEach((value, column) => {
+      const baseline = top - (rowIndex + 1) * height + (height - TEXT_SIZE) / 2 + 2
+      ops.push(text(MARGIN + column * width + 3, baseline, value))
+    })
+  })
+  return ops.join('\n')
+}
+
 function chartContent(page: ChartPage, symbols: Record<string, SymbolDescription>, fontKeys: Map<string, string>) {
   const { width, height } = page.cell
   const size = Math.min(width, height)
   const top = PAGE_HEIGHT - MARGIN
-  const ops: string[] = []
+  const ops = gridLines(page.cell, page.grid.length, Math.max(...page.grid.map((row) => row.length)))
   page.grid.forEach((row, rowIndex) => {
     ;[...row].forEach((name, column) => {
       if (name === BLANK) return
@@ -276,6 +315,8 @@ export function buildChartPdf(description: ChartPdfDescription): Uint8Array {
         return legendContent(page, description.symbols, fontKeys)
       case 'text':
         return textContent(page)
+      case 'table':
+        return tableContent(page)
     }
   }
 

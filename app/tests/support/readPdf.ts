@@ -3,6 +3,10 @@
 import { fileURLToPath } from 'node:url'
 import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs'
 
+// pdf.js path data: each operation code is followed by its points.
+const MOVE_TO = 0
+const LINE_TO = 1
+
 export interface PdfGlyph {
   font: string
   code: number
@@ -13,8 +17,17 @@ export interface PdfGlyph {
   y: number
 }
 
+export interface PdfLine {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
 export interface PdfPage {
   glyphs: PdfGlyph[]
+  /** Straight stroked segments. */
+  lines: PdfLine[]
   /** The page's text as pdf.js extracts it, one item per text run. */
   text: { str: string; x: number; y: number }[]
 }
@@ -40,6 +53,7 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
     const page = await document.getPage(number)
     const operators = await page.getOperatorList()
     const glyphs: PdfGlyph[] = []
+    const lines: PdfLine[] = []
     let font = ''
     let fontEmbedded = false
     let fontSize = 0
@@ -63,6 +77,22 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
           line = [line[0], line[1], line[2], line[3], line[4] + args[0] * line[0], line[5] + args[1] * line[3]]
           text = line
           break
+        case OPS.constructPath: {
+          const [paint, [path]] = args
+          if (paint !== OPS.stroke || !path) break
+          let x = 0
+          let y = 0
+          for (let at = 0; at < path.length; ) {
+            const op = path[at++]
+            if (op !== MOVE_TO && op !== LINE_TO) {
+              throw new Error(`readPdf reads only straight lines, not path operation ${op}`)
+            }
+            const [nextX, nextY] = [path[at++], path[at++]]
+            if (op === LINE_TO) lines.push({ x1: x, y1: y, x2: nextX, y2: nextY })
+            ;[x, y] = [nextX, nextY]
+          }
+          break
+        }
         case OPS.showText:
           for (const glyph of args[0]) {
             if (typeof glyph === 'number') continue
@@ -83,6 +113,7 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
     const content = await page.getTextContent()
     pages.push({
       glyphs,
+      lines,
       text: content.items.flatMap((item) =>
         'str' in item && item.str.trim() !== ''
           ? [{ str: item.str, x: item.transform[4], y: item.transform[5] }]
