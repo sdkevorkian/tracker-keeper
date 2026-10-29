@@ -5,7 +5,8 @@ A browser app (Chrome and Edge) for importing, verifying and tracking cross stit
 ## Scripts
 
 - `npm run dev`: start the dev server
-- `npm test`: run the Vitest suite once (`npm run test:watch` to watch)
+- `npm test`: run the Vitest unit tests once (`npm run test:watch` to watch)
+- `npm run test:acceptance`: run the acceptance cases against the Workspace (Vitest) and the built app in Chromium (Playwright). Run `npx playwright install chromium` once first. See [ADR-0003](../docs/adr/0003-four-layer-acceptance-tests.md)
 - `npm run lint`: lint with oxlint
 - `npm run build`: typecheck and build for production
 - `npm run preview`: serve the production build, including the service worker
