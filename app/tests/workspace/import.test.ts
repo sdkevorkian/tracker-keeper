@@ -1,10 +1,11 @@
 // @vitest-environment node
 import { expect, test } from 'vitest'
 import { createWorkspace } from '../../src/workspace/workspace.ts'
+import { readChartsInProcess } from '../../src/workspace/import/readCharts.ts'
 import { buildChartPdf, type PageDescription } from '../support/chartPdf.ts'
 
 test('importing a one-page chart gives its size, cells and legend entries', async () => {
-  const workspace = createWorkspace()
+  const workspace = createWorkspace({ readCharts: readChartsInProcess })
 
   const chartId = await workspace.importPdf(
     buildChartPdf({
@@ -45,7 +46,7 @@ test('importing a one-page chart gives its size, cells and legend entries', asyn
 })
 
 test('two fonts that share a character code give two different symbols and legend entries', async () => {
-  const workspace = createWorkspace()
+  const workspace = createWorkspace({ readCharts: readChartsInProcess })
 
   const chartId = await workspace.importPdf(
     buildChartPdf({
@@ -80,7 +81,7 @@ test('two fonts that share a character code give two different symbols and legen
 
 test('a chart whose symbol font has no ToUnicode map imports the same as one that has it', async () => {
   const importWith = async (toUnicode: boolean) => {
-    const workspace = createWorkspace()
+    const workspace = createWorkspace({ readCharts: readChartsInProcess })
     const chartId = await workspace.importPdf(
       buildChartPdf({
         fonts: { StitchSymbols: { glyphs: { 0x41: 'square', 0x42: 'triangle' }, toUnicode } },
@@ -115,7 +116,7 @@ test('a chart whose symbol font has no ToUnicode map imports the same as one tha
 
 test('a cover page and an instructions page are ignored', async () => {
   const importPages = async (pages: PageDescription[]) => {
-    const workspace = createWorkspace()
+    const workspace = createWorkspace({ readCharts: readChartsInProcess })
     const chartId = await workspace.importPdf(
       buildChartPdf({
         fonts: { StitchSymbols: { glyphs: { 0x41: 'square', 0x42: 'triangle' } } },
@@ -150,7 +151,7 @@ test('a cover page and an instructions page are ignored', async () => {
 })
 
 test('an info page with a ruled table is not a chart', async () => {
-  const workspace = createWorkspace()
+  const workspace = createWorkspace({ readCharts: readChartsInProcess })
 
   await workspace.importPdf(
     buildChartPdf({
@@ -182,7 +183,7 @@ test('an info page with a ruled table is not a chart', async () => {
 })
 
 test('subscribers hear about an imported chart until they unsubscribe', async () => {
-  const workspace = createWorkspace()
+  const workspace = createWorkspace({ readCharts: readChartsInProcess })
   const pdf = buildChartPdf({
     fonts: { StitchSymbols: { glyphs: { 0x41: 'square' } } },
     symbols: { '#': { font: 'StitchSymbols', code: 0x41 } },
@@ -206,7 +207,7 @@ test('subscribers hear about an imported chart until they unsubscribe', async ()
 })
 
 test('DMC threads get their color from the bundled table, and other brands get none', async () => {
-  const workspace = createWorkspace()
+  const workspace = createWorkspace({ readCharts: readChartsInProcess })
 
   const chartId = await workspace.importPdf(
     buildChartPdf({

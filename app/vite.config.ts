@@ -6,10 +6,14 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   // GitHub Pages serves a project site from /<repo>/
   base: '/tracker-keeper/',
+  // The chart-reading worker is a module worker, so it can share chunks with the app.
+  worker: { format: 'es' },
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // pdf.js's worker is an .mjs file, which the default patterns miss; import needs it offline.
+      workbox: { globPatterns: ['**/*.{js,mjs,css,html}'] },
       includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon-180x180.png'],
       manifest: {
         name: 'tracker-keeper',

@@ -1,8 +1,7 @@
 // The headless core: every behavior lives here, behind commands, and the UI
 // only sends commands and draws the state it subscribes to.
 import type { Chart } from './chart.ts'
-import { extractPages } from './import/extract.ts'
-import { parseCharts } from './import/parse.ts'
+import type { ReadCharts } from './import/readCharts.ts'
 
 export interface WorkspaceState {
   charts: ReadonlyMap<string, Chart>
@@ -16,7 +15,15 @@ export interface Workspace {
   importPdf(bytes: Uint8Array): Promise<string>
 }
 
-export function createWorkspace(): Workspace {
+export interface WorkspaceOptions {
+  /**
+   * How import reads charts out of a PDF: in a Web Worker in the app, in-process in tests.
+   * Passed in, so the app doesn't bundle pdf.js on the main thread.
+   */
+  readCharts: ReadCharts
+}
+
+export function createWorkspace({ readCharts }: WorkspaceOptions): Workspace {
   let state: WorkspaceState = { charts: new Map() }
   const listeners = new Set<(state: WorkspaceState) => void>()
 
@@ -34,7 +41,7 @@ export function createWorkspace(): Workspace {
       return () => listeners.delete(listener)
     },
     async importPdf(bytes) {
-      const parsed = parseCharts(await extractPages(bytes))
+      const parsed = await readCharts(bytes)
       if (parsed.length === 0) throw new Error('No chart found in this PDF')
       const charts = new Map(state.charts)
       const ids = parsed.map((chart) => {
