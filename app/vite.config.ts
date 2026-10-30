@@ -35,5 +35,10 @@ export default defineConfig({
     environment: 'jsdom',
     // The app runs the modern pdf.js build in Chromium; Node needs the legacy one.
     alias: [{ find: /^pdfjs-dist$/, replacement: 'pdfjs-dist/legacy/build/pdf.mjs' }],
+    projects: [
+      { extends: true, test: { name: 'unit', include: ['src/**/*.test.{ts,tsx}', 'tests/**/*.test.ts'] } },
+      // The acceptance cases against the Workspace driver; Playwright runs them against the browser driver.
+      { extends: true, test: { name: 'acceptance', include: ['acceptance/runners/*.test.ts'], environment: 'node' } },
+    ],
   },
 })
