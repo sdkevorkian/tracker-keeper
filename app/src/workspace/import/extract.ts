@@ -149,6 +149,8 @@ export async function extractPages(bytes: Uint8Array, signal?: AbortSignal): Pro
     data: bytes.slice(),
     disableFontFace: true,
     fontExtraProperties: true,
+    // Images are never drawn, so VideoFrames from ImageDecoder would be left unclosed.
+    isImageDecoderSupported: false,
     verbosity: 0,
   })
   const stop = () => void loading.destroy()
