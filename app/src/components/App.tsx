@@ -74,7 +74,7 @@ function App({ workspace }: { workspace: Workspace }) {
             {importError}
           </p>
         )}
-        {chart && <ChartView chart={chart} />}
+        {chart && <ChartView key={chart.id} chart={chart} />}
       </main>
     </>
   )

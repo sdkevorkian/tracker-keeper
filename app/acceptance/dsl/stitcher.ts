@@ -69,6 +69,10 @@ export class Stitcher {
     deepStrictEqual(await this.driver.shownChartSize(), expected)
   }
 
+  async seesStitches(expected: ShownStitches) {
+    deepStrictEqual(await this.driver.shownStitches(), expected)
+  }
+
   async zoomsIn() {
     this.shownBefore = await this.driver.shownStitches()
     await this.driver.zoomIn()
