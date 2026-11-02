@@ -11,7 +11,8 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 self.onmessage = async ({ data: { id, bytes } }: MessageEvent<ReadChartsRequest>) => {
   let response: ReadChartsResponse
   try {
-    response = { id, charts: await readChartsInProcess(bytes) }
+    // Never aborted: a read that takes too long is stopped by terminating this worker.
+    response = { id, charts: await readChartsInProcess(bytes, new AbortController().signal) }
   } catch (error) {
     response = { id, error: error instanceof Error ? error.message : String(error) }
   }

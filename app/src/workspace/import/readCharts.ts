@@ -4,6 +4,7 @@
 import { extractPages } from './extract.ts'
 import { parseCharts, type ParsedChart } from './parse.ts'
 
-export type ReadCharts = (bytes: Uint8Array) => Promise<ParsedChart[]>
+/** Reads the charts in a PDF. Once `signal` aborts, the result no longer matters and the work should stop. */
+export type ReadCharts = (bytes: Uint8Array, signal: AbortSignal) => Promise<ParsedChart[]>
 
-export const readChartsInProcess: ReadCharts = async (bytes) => parseCharts(await extractPages(bytes))
+export const readChartsInProcess: ReadCharts = async (bytes, signal) => parseCharts(await extractPages(bytes, signal))

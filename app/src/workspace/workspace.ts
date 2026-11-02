@@ -15,6 +15,12 @@ export interface Workspace {
   importPdf(bytes: Uint8Array): Promise<string>
 }
 
+/** Far larger than any chart PDF, but small enough that reading one can't exhaust memory. */
+const MAX_PDF_MB = 200
+
+/** Reading a chart takes seconds; a PDF still being read after this is stopped. */
+const READ_TIMEOUT_MS = 60_000
+
 export interface WorkspaceOptions {
   /**
    * How import reads charts out of a PDF: in a Web Worker in the app, in-process in tests.
@@ -41,7 +47,11 @@ export function createWorkspace({ readCharts }: WorkspaceOptions): Workspace {
       return () => listeners.delete(listener)
     },
     async importPdf(bytes) {
-      const parsed = await readCharts(bytes)
+      if (!isPdf(bytes)) throw new Error("This file isn't a PDF")
+      if (bytes.length > MAX_PDF_MB * 1024 * 1024) {
+        throw new Error(`This PDF is too large to import (over ${MAX_PDF_MB} MB)`)
+      }
+      const parsed = await readWithTimeout(readCharts, bytes)
       if (parsed.length === 0) throw new Error('No chart found in this PDF')
       const charts = new Map(state.charts)
       const ids = parsed.map((chart) => {
@@ -52,5 +62,27 @@ export function createWorkspace({ readCharts }: WorkspaceOptions): Workspace {
       update({ ...state, charts })
       return ids[0]
     },
+  }
+}
+
+// PDF readers accept the header anywhere in the first 1024 bytes.
+function isPdf(bytes: Uint8Array) {
+  const start = new TextDecoder('latin1').decode(bytes.subarray(0, 1024))
+  return start.includes('%PDF-')
+}
+
+async function readWithTimeout(readCharts: ReadCharts, bytes: Uint8Array) {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(new Error('This PDF took too long to read'))
+    }, READ_TIMEOUT_MS)
+  })
+  try {
+    return await Promise.race([readCharts(bytes, controller.signal), timedOut])
+  } finally {
+    clearTimeout(timer)
   }
 }

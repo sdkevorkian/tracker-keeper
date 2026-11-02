@@ -1,6 +1,31 @@
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
+
+// Everything the app loads comes from its own site, and nothing may run code built from a
+// string, so a PDF that exploits a pdf.js bug can't run code here. GitHub Pages can't send
+// headers, so this goes in a meta tag. The dev server needs inline scripts, so builds only.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+].join('; ')
+
+function contentSecurityPolicy(): Plugin {
+  return {
+    name: 'content-security-policy',
+    apply: 'build',
+    transformIndexHtml: () => [
+      {
+        tag: 'meta',
+        attrs: { 'http-equiv': 'Content-Security-Policy', content: CONTENT_SECURITY_POLICY },
+        injectTo: 'head-prepend',
+      },
+    ],
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -9,6 +34,7 @@ export default defineConfig({
   // The chart-reading worker is a module worker, so it can share chunks with the app.
   worker: { format: 'es' },
   plugins: [
+    contentSecurityPolicy(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',

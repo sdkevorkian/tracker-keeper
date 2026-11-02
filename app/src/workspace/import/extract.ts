@@ -140,7 +140,10 @@ function readPath(data: ArrayLike<number>, ctm: Matrix): PathCommand[] {
   return commands
 }
 
-export async function extractPages(bytes: Uint8Array): Promise<PagePrimitives[]> {
+/** Far more pages than any chart PDF, so a PDF claiming more can't keep import busy for ages. */
+const MAX_PAGES = 500
+
+export async function extractPages(bytes: Uint8Array, signal?: AbortSignal): Promise<PagePrimitives[]> {
   const loading = getDocument({
     // pdf.js takes ownership of the buffer it is given.
     data: bytes.slice(),
@@ -148,10 +151,14 @@ export async function extractPages(bytes: Uint8Array): Promise<PagePrimitives[]>
     fontExtraProperties: true,
     verbosity: 0,
   })
+  const stop = () => void loading.destroy()
+  signal?.addEventListener('abort', stop)
   const document = await loading.promise
   try {
+    if (document.numPages > MAX_PAGES) throw new Error(`This PDF has too many pages to import (over ${MAX_PAGES})`)
     const pages: PagePrimitives[] = []
     for (let number = 1; number <= document.numPages; number++) {
+      signal?.throwIfAborted()
       const page = await document.getPage(number)
       const operators = await page.getOperatorList()
       const glyphs: Glyph[] = []
@@ -277,6 +284,7 @@ export async function extractPages(bytes: Uint8Array): Promise<PagePrimitives[]>
     }
     return pages
   } finally {
+    signal?.removeEventListener('abort', stop)
     await loading.destroy()
   }
 }
