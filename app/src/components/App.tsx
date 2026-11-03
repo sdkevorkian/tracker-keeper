@@ -1,17 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState, useSyncExternalStore, type ChangeEvent } from 'react'
+import type { Workspace } from '../workspace/workspace.ts'
+import { ChartView } from './ChartView.tsx'
 import './App.css'
 
 type UserAgentData = { brands: { brand: string }[] }
 
 type Theme = 'light' | 'dark'
-
-const swatches = [
-  { name: 'Heading text', token: '--text-h' },
-  { name: 'Body text', token: '--text' },
-  { name: 'Primary', token: '--primary' },
-  { name: 'Secondary', token: '--secondary' },
-  { name: 'Tertiary', token: '--tertiary' },
-]
 
 // Chrome and Edge both report the "Chromium" brand; Firefox and Safari have no userAgentData.
 function isSupportedBrowser(): boolean {
@@ -23,13 +17,30 @@ function preferredTheme(): Theme {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
-function App() {
+function App({ workspace }: { workspace: Workspace }) {
   const [theme, setTheme] = useState<Theme>(preferredTheme)
   const otherTheme = theme === 'dark' ? 'light' : 'dark'
+  const state = useSyncExternalStore(workspace.subscribe, () => workspace.state)
+  const [chartId, setChartId] = useState<string>()
+  const [importError, setImportError] = useState<string>()
+  const fileInput = useRef<HTMLInputElement>(null)
+  const chart = chartId ? state.charts.get(chartId) : undefined
 
   function toggleTheme() {
     document.documentElement.dataset.theme = otherTheme
     setTheme(otherTheme)
+  }
+
+  async function importFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setImportError(undefined)
+    try {
+      setChartId(await workspace.importPdf(new Uint8Array(await file.arrayBuffer())))
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : String(error))
+    }
   }
 
   return (
@@ -40,22 +51,30 @@ function App() {
         </p>
       )}
       <main>
-        <h1>tracker-keeper</h1>
-        <p>Import, verify and track cross stitch charts in the browser.</p>
-        <div className="palette-header">
-          <h2>Palette</h2>
-          <button type="button" className="theme-toggle" onClick={toggleTheme}>
+        <div className="app-header">
+          <h1>tracker-keeper</h1>
+          <button type="button" className="button" onClick={toggleTheme}>
             Switch to {otherTheme} mode
           </button>
         </div>
-        <ul className="swatches">
-          {swatches.map(({ name, token }) => (
-            <li key={token}>
-              <span className="swatch-name">{name}</span>
-              <span className="swatch-line" style={{ background: `var(${token})` }} />
-            </li>
-          ))}
-        </ul>
+        <p>Import, verify and track cross stitch charts in the browser.</p>
+        <button type="button" className="button" onClick={() => fileInput.current?.click()}>
+          Import
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept="application/pdf"
+          aria-label="Chart PDF"
+          hidden
+          onChange={importFile}
+        />
+        {importError && (
+          <p role="alert" className="import-error">
+            {importError}
+          </p>
+        )}
+        {chart && <ChartView key={chart.id} chart={chart} />}
       </main>
     </>
   )

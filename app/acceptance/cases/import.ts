@@ -6,4 +6,34 @@ export default function importCases(test: AcceptanceTest) {
 
     await stitcher.seesChart({ width: 3, height: 2 })
   })
+
+  test(
+    'the app stays responsive while a large chart imports',
+    { needs: ['import', 'responsiveness'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ size: { width: 200, height: 200 } })
+
+      await stitcher.couldKeepUsingTheAppWhileItImported()
+    },
+  )
+
+  test('a newly imported chart is shown whole', { needs: ['import', 'pan and zoom'] }, async ({ stitcher }) => {
+    await stitcher.importsChart({ size: { width: 100, height: 100 } })
+
+    await stitcher.seesStitches({ across: [1, 100], down: [1, 100] })
+  })
+
+  test(
+    'a stitcher can zoom in on a chart and pan across it',
+    { needs: ['import', 'pan and zoom'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ size: { width: 100, height: 100 } })
+
+      await stitcher.zoomsIn()
+      await stitcher.seesFewerStitchesThanBefore()
+
+      await stitcher.dragsTheChartLeft()
+      await stitcher.seesStitchesFurtherRightThanBefore()
+    },
+  )
 }
