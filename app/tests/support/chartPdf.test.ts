@@ -41,6 +41,218 @@ test('cells need not be square, and a dot leaves a cell blank', async () => {
   ])
 })
 
+/** A page's chart symbols read back as grid rows, one letter per character code from 0x41. */
+function gridOn(page: { glyphs: { font: string; code: number; x: number; y: number }[] }, cell: number) {
+  const symbols = page.glyphs.filter((glyph) => glyph.font === 'StitchSquares')
+  const left = Math.min(...symbols.map(({ x }) => x))
+  const top = Math.max(...symbols.map(({ y }) => y))
+  const rows: string[][] = []
+  for (const { code, x, y } of symbols) {
+    const row = Math.round((top - y) / cell)
+    const column = Math.round((x - left) / cell)
+    rows[row] ??= []
+    rows[row][column] = String.fromCharCode(code).toLowerCase()
+  }
+  return rows.map((row) => row.join(''))
+}
+
+test('a chart larger than a page is split into pages of that many stitches, row by row', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: {
+        StitchSquares: {
+          glyphs: {
+            0x41: 'square',
+            0x42: 'triangle',
+            0x43: 'square',
+            0x44: 'triangle',
+          },
+        },
+      },
+      symbols: {
+        a: { font: 'StitchSquares', code: 0x41 },
+        b: { font: 'StitchSquares', code: 0x42 },
+        c: { font: 'StitchSquares', code: 0x43 },
+        d: { font: 'StitchSquares', code: 0x44 },
+      },
+      pages: [
+        {
+          type: 'chart',
+          cell: { width: 10, height: 10 },
+          grid: ['aabbc', 'aabbc', 'ccdda'],
+          pageSize: { width: 2, height: 2 },
+        },
+      ],
+    }),
+  )
+
+  expect(pdf.pages.map((page) => gridOn(page, 10))).toEqual([
+    ['aa', 'aa'],
+    ['bb', 'bb'],
+    ['c', 'c'],
+    ['cc'],
+    ['dd'],
+    ['a'],
+  ])
+})
+
+test('neighbouring pages can repeat rows and columns, and no page holds only repeats', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: {
+        StitchSquares: {
+          glyphs: {
+            0x41: 'square',
+            0x42: 'triangle',
+            0x43: 'square',
+            0x44: 'triangle',
+          },
+        },
+      },
+      symbols: {
+        a: { font: 'StitchSquares', code: 0x41 },
+        b: { font: 'StitchSquares', code: 0x42 },
+        c: { font: 'StitchSquares', code: 0x43 },
+        d: { font: 'StitchSquares', code: 0x44 },
+      },
+      pages: [
+        {
+          type: 'chart',
+          cell: { width: 10, height: 10 },
+          grid: ['abcda', 'bcdab', 'cdabc'],
+          pageSize: { width: 3, height: 2 },
+          overlap: 1,
+        },
+      ],
+    }),
+  )
+
+  expect(pdf.pages.map((page) => gridOn(page, 10))).toEqual([
+    ['abc', 'bcd'],
+    ['cda', 'dab'],
+    ['bcd', 'cda'],
+    ['dab', 'abc'],
+  ])
+})
+
+test('overlap marks shade the stitches a page repeats and point arrows at where neighbouring pages align', async () => {
+  const cell = 10
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { a: { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'chart',
+          cell: { width: cell, height: cell },
+          grid: Array.from({ length: 6 }, () => 'a'.repeat(6)),
+          pageSize: { width: 4, height: 4 },
+          overlap: 2,
+          overlapMarks: true,
+        },
+      ],
+    }),
+  )
+
+  // In cells from the page's top left grid corner. Pages start at stitch 1 and 3 each way.
+  const marksOn = (page: (typeof pdf.pages)[number]) => {
+    const long = page.lines.filter(({ x1, y1, x2, y2 }) => Math.hypot(x2 - x1, y2 - y1) > cell)
+    const left = Math.min(...long.map((line) => Math.min(line.x1, line.x2)))
+    const top = Math.max(...long.map((line) => Math.max(line.y1, line.y2)))
+    const columns = (Math.max(...long.map((line) => Math.max(line.x1, line.x2))) - left) / cell
+    const rows = (top - Math.min(...long.map((line) => Math.min(line.y1, line.y2)))) / cell
+    const short = page.lines.filter((line) => !long.includes(line))
+    const middles = (lines: typeof short, along: 'x' | 'y') =>
+      [
+        ...new Set(
+          lines.map((line) => (along === 'x' ? ((line.x1 + line.x2) / 2 - left) / cell : (top - (line.y1 + line.y2) / 2) / cell)),
+        ),
+      ].sort((a, b) => a - b)
+    return {
+      // Shading lies inside the grid; the arrows' fills lie outside it.
+      shaded: page.fills
+        .map(({ x0, y0, x1, y1 }) => ({
+          across: [(x0 - left) / cell, (x1 - left) / cell],
+          down: [(top - y1) / cell, (top - y0) / cell],
+        }))
+        .filter(({ across, down }) => across[0] >= 0 && down[0] >= 0 && across[1] <= columns && down[1] <= rows),
+      // An arrow's edge across its base runs along the grid edge it points at.
+      arrowsAtColumnLines: middles(short.filter((line) => line.y1 === line.y2), 'x'),
+      arrowsAtRowLines: middles(short.filter((line) => line.x1 === line.x2), 'y'),
+    }
+  }
+  expect(pdf.pages.map(marksOn)).toEqual([
+    { shaded: [], arrowsAtColumnLines: [2], arrowsAtRowLines: [2] },
+    { shaded: [{ across: [0, 2], down: [0, 4] }], arrowsAtColumnLines: [0], arrowsAtRowLines: [2] },
+    { shaded: [{ across: [0, 4], down: [0, 2] }], arrowsAtColumnLines: [2], arrowsAtRowLines: [0] },
+    {
+      shaded: [
+        { across: [0, 2], down: [0, 4] },
+        { across: [0, 4], down: [0, 2] },
+      ],
+      arrowsAtColumnLines: [0],
+      arrowsAtRowLines: [0],
+    },
+  ])
+})
+
+test('margin numbers mark every 10th row and column of the whole chart, outside the grid', async () => {
+  const cell = 10
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { a: { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'chart',
+          cell: { width: cell, height: cell },
+          grid: Array.from({ length: 24 }, () => 'a'.repeat(24)),
+          pageSize: { width: 12, height: 12 },
+          marginNumbers: true,
+        },
+      ],
+    }),
+  )
+
+  // Helvetica digits are 556/1000 of the font size wide, and margin numbers are set at 10 points.
+  const middleOf = (text: { str: string; x: number }) => text.x + (text.str.length * 556 * 10) / 1000 / 2
+  const numbersOn = (page: (typeof pdf.pages)[number]) => {
+    const left = Math.min(...page.lines.map((line) => Math.min(line.x1, line.x2)))
+    const top = Math.max(...page.lines.map((line) => Math.max(line.y1, line.y2)))
+    return {
+      // Columns are numbered from 1 at the page's left edge; rows from 1 at its top edge.
+      across: page.text
+        .filter((text) => text.y > top)
+        .map((text) => ({
+          number: text.str,
+          column: Math.floor((middleOf(text) - left) / cell) + 1,
+        })),
+      down: page.text
+        .filter((text) => middleOf(text) < left)
+        .map((text) => ({
+          number: text.str,
+          row: Math.floor((top - text.y) / cell) + 1,
+        })),
+    }
+  }
+
+  expect(pdf.pages.map(numbersOn)).toEqual([
+    {
+      across: [{ number: '10', column: 10 }],
+      down: [{ number: '10', row: 10 }],
+    },
+    {
+      across: [{ number: '20', column: 8 }],
+      down: [{ number: '10', row: 10 }],
+    },
+    {
+      across: [{ number: '10', column: 10 }],
+      down: [{ number: '20', row: 8 }],
+    },
+    { across: [{ number: '20', column: 8 }], down: [{ number: '20', row: 8 }] },
+  ])
+})
+
 test('a chart page draws a solid grid line along every row and column edge', async () => {
   const pdf = await readPdf(
     buildChartPdf({

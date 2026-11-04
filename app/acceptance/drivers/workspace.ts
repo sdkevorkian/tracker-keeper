@@ -1,11 +1,11 @@
 // Reaches the app through the headless Workspace, in-process.
 import { createWorkspace } from '../../src/workspace/workspace.ts'
 import { readChartsInProcess } from '../../src/workspace/import/readCharts.ts'
-import type { Capability, Driver, ShownStitches } from './driver.ts'
+import type { Capability, Driver, ShownImportIssue, ShownStitches, SourcePagePlacement } from './driver.ts'
 
 export class WorkspaceDriver implements Driver {
   readonly name = 'Workspace'
-  readonly capabilities: ReadonlySet<Capability> = new Set(['import'])
+  readonly capabilities: ReadonlySet<Capability> = new Set(['import', 'source pages', 'import issues'])
   private workspace = createWorkspace({ readCharts: readChartsInProcess })
   private chartId?: string
 
@@ -14,9 +14,25 @@ export class WorkspaceDriver implements Driver {
   }
 
   async shownChartSize() {
-    if (!this.chartId) throw new Error('No chart has been imported')
-    const { width, height } = this.workspace.state.charts.get(this.chartId)!
+    const { width, height } = this.chart()
     return { width, height }
+  }
+
+  async sourcePagePlacements(): Promise<SourcePagePlacement[]> {
+    return this.chart().source.pages.map(({ page, across, down }) => ({
+      page,
+      across,
+      down,
+    }))
+  }
+
+  async importIssues(): Promise<ShownImportIssue[]> {
+    return this.chart().importIssues.map(({ kind, printed, parsed }) => ({ kind, printed, parsed }))
+  }
+
+  private chart() {
+    if (!this.chartId) throw new Error('No chart has been imported')
+    return this.workspace.state.charts.get(this.chartId)!
   }
 
   async longestBlockDuringImport(): Promise<number> {

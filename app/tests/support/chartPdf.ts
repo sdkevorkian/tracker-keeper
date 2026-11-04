@@ -30,6 +30,14 @@ export interface ChartPage {
   cell: { width: number; height: number }
   /** One string per row, one symbol name per cell, '.' for a blank cell. */
   grid: string[]
+  /** Stitches per page. A larger grid is split over several pages, row by row. */
+  pageSize?: { width: number; height: number }
+  /** How many rows and columns neighbouring pages repeat. None by default. */
+  overlap?: number
+  /** Prints every 10th row and column number of the whole chart in the margins, as chart software does. */
+  marginNumbers?: boolean
+  /** Shades the rows and columns a page repeats, and points arrows at where pages align, as chart software does. */
+  overlapMarks?: boolean
 }
 
 export interface LegendPage {
@@ -77,6 +85,12 @@ const TEXT_SIZE = 10
 const LINE_HEIGHT = 14
 const LEGEND_ROW_HEIGHT = 16
 const GRID_LINE_WIDTH = 0.5
+// The grey that overlap shading is filled with.
+const SHADE = 0.85
+const MARGIN_NUMBER_EVERY = 10
+const MARGIN_NUMBER_GAP = 4
+// Helvetica's digits are all this wide, in thousandths of the font size.
+const DIGIT_WIDTH = 556
 const LEGEND_COLUMNS = { symbol: 0, brand: 24, code: 74, name: 114, strands: 284, count: 324 }
 
 // What the ToUnicode map says each shape is.
@@ -84,6 +98,8 @@ const SHAPE_UNICODE: Record<Shape, string> = {
   square: '■',
   triangle: '▲',
 }
+
+type Point = [x: number, y: number]
 
 const encoder = new TextEncoder()
 
@@ -274,11 +290,116 @@ function tableContent(page: TablePage) {
   return ops.join('\n')
 }
 
-function chartContent(page: ChartPage, symbols: Record<string, SymbolDescription>, fontKeys: Map<string, string>) {
+/** One printed page of a chart, and where its top left cell sits in the whole chart (0-based). */
+interface ChartPart extends ChartPage {
+  origin: { row: number; column: number }
+  /** Where the next page across and down begins, counted from this page's first row and column. */
+  next: { row?: number; column?: number }
+}
+
+/** The chart cut into the pages it prints on, row by row from the top left. */
+function chartPages(page: ChartPage): ChartPart[] {
+  const columns = Math.max(...page.grid.map((row) => row.length))
+  const { width, height } = page.pageSize ?? {
+    width: columns,
+    height: page.grid.length,
+  }
+  const parts: ChartPart[] = []
+  const rowStarts = pageStarts(page.grid.length, height, page.overlap)
+  const columnStarts = pageStarts(columns, width, page.overlap)
+  rowStarts.forEach((top, down) => {
+    columnStarts.forEach((left, across) => {
+      const grid = page.grid.slice(top, top + height).map((row) => row.slice(left, left + width))
+      const next = {
+        row: rowStarts[down + 1] === undefined ? undefined : rowStarts[down + 1] - top,
+        column: columnStarts[across + 1] === undefined ? undefined : columnStarts[across + 1] - left,
+      }
+      parts.push({ ...page, grid, origin: { row: top, column: left }, next })
+    })
+  })
+  return parts
+}
+
+/** Where each page starts along one side of the chart, repeating `overlap` stitches from the page before. */
+function pageStarts(length: number, perPage: number, overlap = 0) {
+  const starts = [0]
+  while (starts.at(-1)! + perPage < length) starts.push(starts.at(-1)! + perPage - overlap)
+  return starts
+}
+
+/** Shades the stitches this page repeats from the pages before it. Drawn first, under the grid and symbols. */
+function overlapShading(part: ChartPart) {
+  const { width, height } = part.cell
+  const top = PAGE_HEIGHT - MARGIN
+  const [columns, rows] = [Math.max(...part.grid.map((row) => row.length)), part.grid.length]
+  const overlap = part.overlap ?? 0
+  const ops: string[] = []
+  if (part.origin.column > 0) ops.push(`${MARGIN} ${top - rows * height} ${overlap * width} ${rows * height} re f`)
+  if (part.origin.row > 0) ops.push(`${MARGIN} ${top - overlap * height} ${columns * width} ${overlap * height} re f`)
+  return ops.length ? [`${SHADE} g`, ...ops, '0 g'] : []
+}
+
+/**
+ * Arrows outside the grid pointing at the lines neighbouring pages align on:
+ * this page's first column and row when it repeats stitches, and where the next page begins.
+ */
+function alignmentArrows(part: ChartPart) {
+  const { width, height } = part.cell
+  const top = PAGE_HEIGHT - MARGIN
+  const [columns, rows] = [Math.max(...part.grid.map((row) => row.length)), part.grid.length]
+  const [right, bottom] = [MARGIN + columns * width, top - rows * height]
+  const arrow = (tip: Point, base: [Point, Point]) => {
+    const [a, b, c] = [base[0], base[1], tip].map(([x, y]) => `${x} ${y}`)
+    return [`${a} m ${b} l ${c} l f`, `${a} m ${b} l ${c} l ${a} l S`]
+  }
+  const ops = [`${GRID_LINE_WIDTH} w`]
+  const columnLines = [...(part.origin.column > 0 ? [0] : []), ...(part.next.column ? [part.next.column] : [])]
+  for (const column of columnLines) {
+    const x = MARGIN + column * width
+    ops.push(...arrow([x, top], [[x - width / 2, top + height / 2], [x + width / 2, top + height / 2]]))
+    ops.push(...arrow([x, bottom], [[x - width / 2, bottom - height / 2], [x + width / 2, bottom - height / 2]]))
+  }
+  const rowLines = [...(part.origin.row > 0 ? [0] : []), ...(part.next.row ? [part.next.row] : [])]
+  for (const row of rowLines) {
+    const y = top - row * height
+    ops.push(...arrow([MARGIN, y], [[MARGIN - width / 2, y - height / 2], [MARGIN - width / 2, y + height / 2]]))
+    ops.push(...arrow([right, y], [[right + width / 2, y - height / 2], [right + width / 2, y + height / 2]]))
+  }
+  return ops
+}
+
+/** Every 10th row and column number, centred on its column above the grid and on its row left of it. */
+function marginNumbers(part: ChartPart) {
+  const { width, height } = part.cell
+  const top = PAGE_HEIGHT - MARGIN
+  const textWidth = (value: string) => (value.length * DIGIT_WIDTH * TEXT_SIZE) / 1000
+  const ops: string[] = []
+  const columns = Math.max(...part.grid.map((row) => row.length))
+  for (let column = 0; column < columns; column++) {
+    const number = String(part.origin.column + column + 1)
+    if (Number(number) % MARGIN_NUMBER_EVERY) continue
+    const middle = MARGIN + (column + 0.5) * width
+    ops.push(text(middle - textWidth(number) / 2, top + MARGIN_NUMBER_GAP, number))
+  }
+  part.grid.forEach((_row, row) => {
+    const number = String(part.origin.row + row + 1)
+    if (Number(number) % MARGIN_NUMBER_EVERY) return
+    const baseline = top - (row + 1) * height + (height - TEXT_SIZE) / 2 + 2
+    ops.push(text(MARGIN - MARGIN_NUMBER_GAP - textWidth(number), baseline, number))
+  })
+  return ops
+}
+
+function chartContent(page: ChartPart, symbols: Record<string, SymbolDescription>, fontKeys: Map<string, string>) {
   const { width, height } = page.cell
   const size = Math.min(width, height)
   const top = PAGE_HEIGHT - MARGIN
-  const ops = gridLines(page.cell, page.grid.length, Math.max(...page.grid.map((row) => row.length)))
+  const ops = [
+    ...(page.overlapMarks ? overlapShading(page) : []),
+    ...gridLines(page.cell, page.grid.length, Math.max(...page.grid.map((row) => row.length))),
+  ]
+  if (page.marginNumbers) ops.push(...marginNumbers(page))
+  if (page.overlapMarks) ops.push(...alignmentArrows(page))
   page.grid.forEach((row, rowIndex) => {
     ;[...row].forEach((name, column) => {
       if (name === BLANK) return
@@ -307,24 +428,24 @@ export function buildChartPdf(description: ChartPdfDescription): Uint8Array {
   fontRefs.push(`/${TEXT_FONT} ${pdf.add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>')} 0 R`)
   const resources = `<< /Font << ${fontRefs.join(' ')} >> >>`
 
-  const contentFor = (page: PageDescription) => {
+  const contentsFor = (page: PageDescription) => {
     switch (page.type) {
       case 'chart':
-        return chartContent(page, description.symbols, fontKeys)
+        return chartPages(page).map((part) => chartContent(part, description.symbols, fontKeys))
       case 'legend':
-        return legendContent(page, description.symbols, fontKeys)
+        return [legendContent(page, description.symbols, fontKeys)]
       case 'text':
-        return textContent(page)
+        return [textContent(page)]
       case 'table':
-        return tableContent(page)
+        return [tableContent(page)]
     }
   }
 
-  const pageIds = description.pages.map((page) => {
-    const content = pdf.addStream('', encoder.encode(contentFor(page)))
+  const pageIds = description.pages.flatMap(contentsFor).map((content) => {
+    const stream = pdf.addStream('', encoder.encode(content))
     return pdf.add(
       `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}]` +
-        ` /Resources ${resources} /Contents ${content} 0 R >>`,
+        ` /Resources ${resources} /Contents ${stream} 0 R >>`,
     )
   })
 

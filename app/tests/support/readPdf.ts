@@ -6,6 +6,8 @@ import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs'
 // pdf.js path data: each operation code is followed by its points.
 const MOVE_TO = 0
 const LINE_TO = 1
+/** How many numbers follow each path operation code. */
+const PATH_ARGUMENTS = [2, 2, 6, 4, 0]
 
 export interface PdfGlyph {
   font: string
@@ -28,6 +30,8 @@ export interface PdfPage {
   glyphs: PdfGlyph[]
   /** Straight stroked segments. */
   lines: PdfLine[]
+  /** The box around each filled shape. */
+  fills: { x0: number; y0: number; x1: number; y1: number }[]
   /** The page's text as pdf.js extracts it, one item per text run. */
   text: { str: string; x: number; y: number }[]
 }
@@ -38,6 +42,20 @@ type Matrix = [number, number, number, number, number, number]
 const standardFontDataUrl = fileURLToPath(
   new URL('../../node_modules/pdfjs-dist/standard_fonts/', import.meta.url),
 ).replaceAll('\\', '/')
+
+function boxOf(path: ArrayLike<number>) {
+  const xs: number[] = []
+  const ys: number[] = []
+  for (let at = 0; at < path.length; ) {
+    const count = PATH_ARGUMENTS[path[at++]]
+    for (let i = 0; i < count; i += 2) {
+      xs.push(path[at + i])
+      ys.push(path[at + i + 1])
+    }
+    at += count
+  }
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }
+}
 
 export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> {
   const loading = getDocument({
@@ -54,6 +72,7 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
     const operators = await page.getOperatorList()
     const glyphs: PdfGlyph[] = []
     const lines: PdfLine[] = []
+    const fills: PdfPage['fills'] = []
     let font = ''
     let fontEmbedded = false
     let fontSize = 0
@@ -79,6 +98,7 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
           break
         case OPS.constructPath: {
           const [paint, [path]] = args
+          if (paint === OPS.fill && path) fills.push(boxOf(path))
           if (paint !== OPS.stroke || !path) break
           let x = 0
           let y = 0
@@ -114,6 +134,7 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
     pages.push({
       glyphs,
       lines,
+      fills,
       text: content.items.flatMap((item) =>
         'str' in item && item.str.trim() !== ''
           ? [{ str: item.str, x: item.transform[4], y: item.transform[5] }]

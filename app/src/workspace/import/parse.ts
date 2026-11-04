@@ -1,14 +1,17 @@
-// Reads charts from page primitives. Only as wide as the simplest chart needs:
-// one chart page with a solid grid of font symbols, and a legend page.
-import type { LegendEntry, SymbolKey } from '../chart.ts'
+// Reads charts from page primitives: chart pages with a solid grid of font
+// symbols, joined into one grid, and a legend page.
+import type { ImportIssue, LegendEntry, Size, SourcePage, SymbolKey } from '../chart.ts'
 import { bundledColor } from '../threads/colors.ts'
-import type { Box, Glyph, PagePrimitives } from './extract.ts'
+import type { Box, Glyph, PagePrimitives, Path } from './extract.ts'
 
 export interface ParsedChart {
   width: number
   height: number
   cells: Uint16Array
   legend: LegendEntry[]
+  /** Where each page of the PDF sits in the chart. */
+  sourcePages: SourcePage[]
+  importIssues: ImportIssue[]
 }
 
 /** Positions closer than this, in points, are the same line. */
@@ -32,9 +35,23 @@ function distinct(values: number[]) {
   return sorted.filter((value, i) => i === 0 || value - sorted[i - 1] > TOLERANCE)
 }
 
+/**
+ * Positions of lines that run across the grid. Grid lines all run the whole
+ * way, so a position drawn for less than half as long as the longest is
+ * something else, such as a centre mark outside the grid.
+ */
+function gridLines(lines: { at: number; length: number }[]) {
+  const positions = distinct(lines.map(({ at }) => at))
+  const lengths = positions.map((position) =>
+    lines.filter(({ at }) => Math.abs(at - position) <= TOLERANCE).reduce((sum, { length }) => sum + length, 0),
+  )
+  const longest = Math.max(...lengths)
+  return positions.filter((_, i) => lengths[i] >= longest / 2)
+}
+
 function findGrid(page: PagePrimitives): Grid | undefined {
-  const horizontal: number[] = []
-  const vertical: number[] = []
+  const horizontal: { at: number; length: number }[] = []
+  const vertical: { at: number; length: number }[] = []
   for (const path of page.paths) {
     if (!path.stroke) continue
     let from: [number, number] | undefined
@@ -42,14 +59,15 @@ function findGrid(page: PagePrimitives): Grid | undefined {
       if (command.type === 'line' && from) {
         const [x0, y0] = from
         const [x1, y1] = command.to
-        if (Math.abs(y1 - y0) < TOLERANCE && Math.abs(x1 - x0) > TOLERANCE) horizontal.push(y0)
-        if (Math.abs(x1 - x0) < TOLERANCE && Math.abs(y1 - y0) > TOLERANCE) vertical.push(x0)
+        const [across, down] = [Math.abs(x1 - x0), Math.abs(y1 - y0)]
+        if (down < TOLERANCE && across > TOLERANCE) horizontal.push({ at: y0, length: across })
+        if (across < TOLERANCE && down > TOLERANCE) vertical.push({ at: x0, length: down })
       }
       from = command.type === 'move' || command.type === 'line' ? command.to : from
     }
   }
-  const xs = distinct(vertical)
-  const ys = distinct(horizontal).reverse()
+  const xs = gridLines(vertical)
+  const ys = gridLines(horizontal).reverse()
   if (xs.length < 2 || ys.length < 2) return undefined
   return { xs, ys }
 }
@@ -65,6 +83,48 @@ function band(edges: number[], value: number, descending = false) {
     if (value >= a && value < b) return i
   }
   return undefined
+}
+
+/** Numbers printed in a line of text, each with the box around its digits. */
+function numbersIn(glyphs: Glyph[]) {
+  return linesOf(glyphs).flatMap((line) =>
+    wordsOf(line).flatMap((word) => {
+      const value = word.map((glyph) => glyph.unicode).join('')
+      if (!/^\d+$/.test(value)) return []
+      const box = {
+        x0: word[0].box.x0,
+        y0: word[0].box.y0,
+        x1: word.at(-1)!.box.x1,
+        y1: word[0].box.y1,
+      }
+      return [{ value: Number(value), box }]
+    }),
+  )
+}
+
+/**
+ * Where the page's top left cell sits in the whole chart (0-based), from the
+ * row and column numbers printed above and left of its grid.
+ */
+function offsetFromMarginNumbers(page: PagePrimitives, grid: Grid) {
+  const [left, right] = [grid.xs[0], grid.xs.at(-1)!]
+  const [top, bottom] = [grid.ys[0], grid.ys.at(-1)!]
+  const numbers = numbersIn(page.glyphs.filter((glyph) => !holdsSymbol(glyph, grid)))
+  const column = numbers.flatMap(({ value, box }) => {
+    const index = box.y0 > top ? band(grid.xs, centre(box).x) : undefined
+    return index === undefined || centre(box).x > right ? [] : [value - 1 - index]
+  })[0]
+  const row = numbers.flatMap(({ value, box }) => {
+    const index = box.x1 < left ? band(grid.ys, centre(box).y, true) : undefined
+    return index === undefined || centre(box).y < bottom ? [] : [value - 1 - index]
+  })[0]
+  if (column === undefined || row === undefined) return undefined
+  return { row, column }
+}
+
+function holdsSymbol(glyph: Glyph, grid: Grid) {
+  const { x, y } = centre(glyph.box)
+  return band(grid.xs, x) !== undefined && band(grid.ys, y, true) !== undefined
 }
 
 function placeGlyphs(page: PagePrimitives, grid: Grid) {
@@ -109,17 +169,29 @@ function linesOf(glyphs: Glyph[]) {
   return lines.map((line) => line.sort((a, b) => a.box.x0 - b.box.x0))
 }
 
-/** Splits a line of text glyphs into columns at wide gaps. */
-function columnsOf(glyphs: Glyph[]) {
-  const columns: Glyph[][] = []
+/** Splits a line of glyphs into runs at wide gaps. */
+function wordsOf(glyphs: Glyph[]) {
+  const words: Glyph[][] = []
   for (const glyph of glyphs) {
-    const last = columns.at(-1)
+    const last = words.at(-1)
     const previous = last?.at(-1)
     const height = glyph.box.y1 - glyph.box.y0
     if (last && previous && glyph.box.x0 - previous.box.x1 < COLUMN_GAP * height) last.push(glyph)
-    else columns.push([glyph])
+    else words.push([glyph])
   }
-  return columns.map((column) => column.map((glyph) => glyph.unicode).join('').trim()).filter(Boolean)
+  return words
+}
+
+/** Splits a line of text glyphs into columns at wide gaps. */
+function columnsOf(glyphs: Glyph[]) {
+  return wordsOf(glyphs)
+    .map((column) =>
+      column
+        .map((glyph) => glyph.unicode)
+        .join('')
+        .trim(),
+    )
+    .filter(Boolean)
 }
 
 function readLegendRow(line: Glyph[], symbols: Set<string>): LegendEntry | undefined {
@@ -139,24 +211,230 @@ function readLegendRow(line: Glyph[], symbols: Set<string>): LegendEntry | undef
   }
 }
 
-export function parseCharts(pages: PagePrimitives[]): ParsedChart[] {
-  const charts: { grid: Grid; placed: { cell: number; key: string }[] }[] = []
-  const others: PagePrimitives[] = []
+interface ChartPage {
+  /** The page's number in the PDF, from 1. */
+  page: number
+  width: number
+  height: number
+  placed: { cell: number; key: string }[]
+  /** Where the page's top left cell sits in the whole chart (0-based), when its margins say. */
+  offset?: { row: number; column: number }
+  /** How many of its first columns and rows the page shades as repeated from the pages before it. */
+  shaded: { columns: number; rows: number }
+}
+
+type PlacedPage = ChartPage & { offset: { row: number; column: number } }
+
+interface JoinedChart {
+  width: number
+  height: number
+  placed: { cell: number; key: string }[]
+  pages: PlacedPage[]
+}
+
+/** Lays pages whose margins place them into one grid. Repeated cells are written once per page, with the same value. */
+function joinPages(pages: PlacedPage[]): JoinedChart {
+  const width = Math.max(...pages.map((page) => page.offset.column + page.width))
+  const height = Math.max(...pages.map((page) => page.offset.row + page.height))
+  const placed = pages.flatMap((page) =>
+    page.placed.map(({ cell, key }) => {
+      const row = page.offset.row + Math.floor(cell / page.width)
+      const column = page.offset.column + (cell % page.width)
+      return { cell: row * width + column, key }
+    }),
+  )
+  return { width, height, placed, pages }
+}
+
+// How chart software prints a chart's size: '80W x 60H' on an info page, or '80 x 60 stitches'.
+const PRINTED_SIZES = [/(\d+)\s*W\s*[x×]\s*(\d+)\s*H\b/i, /(\d+)\s*[x×]\s*(\d+)\s*stitches\b/i]
+
+/** The chart size printed on the PDF's other pages, if any, in stitches. */
+function printedSizeIn(pages: PagePrimitives[]): Size | undefined {
   for (const page of pages) {
+    for (const line of linesOf(page.glyphs)) {
+      const text = columnsOf(line).join(' ')
+      for (const pattern of PRINTED_SIZES) {
+        const size = pattern.exec(text)
+        if (size) return { width: Number(size[1]), height: Number(size[2]) }
+      }
+    }
+  }
+  return undefined
+}
+
+function boxOfPath(path: Path): Box {
+  const points = path.commands.flatMap((command) =>
+    command.type === 'curve' ? command.points : command.type === 'close' ? [] : [command.to],
+  )
+  const xs = points.map(([x]) => x)
+  const ys = points.map(([, y]) => y)
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }
+}
+
+/**
+ * Chart software shades the rows and columns a page repeats from the page
+ * before it: a fill along the grid's left edge for its whole height, or along
+ * its top edge for its whole width. Counts how many of each it covers.
+ */
+function shadedOverlap(page: PagePrimitives, grid: Grid) {
+  const [left, right] = [grid.xs[0], grid.xs.at(-1)!]
+  const [top, bottom] = [grid.ys[0], grid.ys.at(-1)!]
+  const near = (a: number, b: number) => Math.abs(a - b) <= TOLERANCE
+  const shaded = { columns: 0, rows: 0 }
+  for (const path of page.paths) {
+    if (!path.fill || path.stroke) continue
+    const box = boxOfPath(path)
+    if (near(box.x0, left) && near(box.y0, bottom) && near(box.y1, top) && box.x1 < right - TOLERANCE) {
+      shaded.columns = Math.max(shaded.columns, grid.xs.filter((x) => x > left + TOLERANCE && x <= box.x1 + TOLERANCE).length)
+    }
+    if (near(box.y1, top) && near(box.x0, left) && near(box.x1, right) && box.y0 > bottom + TOLERANCE) {
+      shaded.rows = Math.max(shaded.rows, grid.ys.filter((y) => y < top - TOLERANCE && y >= box.y0 - TOLERANCE).length)
+    }
+  }
+  return shaded
+}
+
+/** Each cell's symbol key, row by row, '' for a blank cell. */
+function keysOf(page: ChartPage) {
+  const keys = Array<string>(page.width * page.height).fill('')
+  for (const { cell, key } of page.placed) keys[cell] = key
+  return keys
+}
+
+/** Whether `a`'s last `k` columns hold the same symbols as `b`'s first `k`. */
+function repeatsColumns(a: ChartPage, b: ChartPage, k: number) {
+  const [left, right] = [keysOf(a), keysOf(b)]
+  for (let row = 0; row < a.height; row++) {
+    for (let i = 0; i < k; i++) {
+      if (left[row * a.width + a.width - k + i] !== right[row * b.width + i]) return false
+    }
+  }
+  return true
+}
+
+/** Whether `a`'s last `k` rows hold the same symbols as `b`'s first `k`. */
+function repeatsRows(a: ChartPage, b: ChartPage, k: number) {
+  const [top, bottom] = [keysOf(a), keysOf(b)]
+  for (let j = 0; j < k; j++) {
+    for (let column = 0; column < a.width; column++) {
+      if (top[(a.height - k + j) * a.width + column] !== bottom[j * b.width + column]) return false
+    }
+  }
+  return true
+}
+
+/**
+ * The fewest stitches every neighbouring pair repeats, or 0 when they repeat
+ * none. Designers repeat only a few, and a pattern that itself repeats would
+ * also match at every multiple of the real overlap.
+ */
+function overlapOf(
+  pairs: [ChartPage, ChartPage][],
+  size: number,
+  repeats: typeof repeatsRows,
+  shaded: (page: ChartPage) => number,
+) {
+  // Pages that shade what they repeat say how much that is, even where the repeated stitches are blank.
+  const marked = new Set(pairs.map(([, page]) => shaded(page)))
+  if (marked.size === 1) {
+    const [k] = marked
+    if (k > 0) return pairs.every(([a, b]) => repeats(a, b, k)) ? k : 0
+  }
+  for (let k = 1; k < size; k++) {
+    if (pairs.every(([a, b]) => repeats(a, b, k))) return k
+  }
+  return 0
+}
+
+/**
+ * Places pages without margin numbers by the rows and columns neighbouring
+ * pages repeat. Pages run in reading order, left to right and then down, and
+ * repeat the same number of stitches all through the chart. Undefined when no
+ * layout has every neighbouring pair repeating stitches.
+ */
+function placeByOverlap(pages: ChartPage[]): PlacedPage[] | undefined {
+  if (pages.length < 2) return undefined
+  for (let across = 1; across <= pages.length; across++) {
+    if (pages.length % across) continue
+    const rows = Array.from({ length: pages.length / across }, (_, row) =>
+      pages.slice(row * across, (row + 1) * across),
+    )
+    const columns = rows[0].map((_, column) => rows.map((row) => row[column]))
+    const sameHeights = rows.every((row) => row.every((page) => page.height === row[0].height))
+    const sameWidths = columns.every((column) => column.every((page) => page.width === column[0].width))
+    if (!sameHeights || !sameWidths) continue
+    const minimum = (sizes: number[]) => Math.min(...sizes)
+    const columnOverlap = overlapOf(
+      rows.flatMap((row) => row.slice(1).map((page, i): [ChartPage, ChartPage] => [row[i], page])),
+      minimum(pages.map((page) => page.width)),
+      repeatsColumns,
+      (page) => page.shaded.columns,
+    )
+    const rowOverlap = overlapOf(
+      columns.flatMap((column) => column.slice(1).map((page, i): [ChartPage, ChartPage] => [column[i], page])),
+      minimum(pages.map((page) => page.height)),
+      repeatsRows,
+      (page) => page.shaded.rows,
+    )
+    if ((columns.length > 1 && !columnOverlap) || (rows.length > 1 && !rowOverlap)) continue
+    const columnStarts = columns.map((_, c) =>
+      columns.slice(0, c).reduce((sum, [page]) => sum + page.width - columnOverlap, 0),
+    )
+    const rowStarts = rows.map((_, r) => rows.slice(0, r).reduce((sum, [page]) => sum + page.height - rowOverlap, 0))
+    return rows.flatMap((row, r) =>
+      row.map((page, c) => ({ ...page, offset: { row: rowStarts[r], column: columnStarts[c] } })),
+    )
+  }
+  return undefined
+}
+
+export function parseCharts(pages: PagePrimitives[]): ParsedChart[] {
+  const chartPages: ChartPage[] = []
+  const others: PagePrimitives[] = []
+  for (const [index, page] of pages.entries()) {
     const grid = findGrid(page)
     const placed = grid && placeGlyphs(page, grid)
-    if (grid && placed && !holdsText(placed)) charts.push({ grid, placed })
-    else others.push(page)
+    if (grid && placed && !holdsText(placed)) {
+      const width = grid.xs.length - 1
+      const height = grid.ys.length - 1
+      chartPages.push({
+        page: index + 1,
+        width,
+        height,
+        placed,
+        offset: offsetFromMarginNumbers(page, grid),
+        shaded: shadedOverlap(page, grid),
+      })
+    } else others.push(page)
   }
+  const numbered = chartPages.filter((page): page is PlacedPage => page.offset !== undefined)
+  const unnumbered = chartPages.filter((page) => !page.offset)
+  const overlapping = placeByOverlap(unnumbered)
+  const charts = [
+    ...(numbered.length ? [joinPages(numbered)] : []),
+    ...(overlapping
+      ? [joinPages(overlapping)]
+      : unnumbered.map((page) => joinPages([{ ...page, offset: { row: 0, column: 0 } }]))),
+  ]
   const symbols = new Set(charts.flatMap(({ placed }) => placed.map(({ key }) => key)))
   const legend = others.flatMap((page) => linesOf(page.glyphs).flatMap((line) => readLegendRow(line, symbols) ?? []))
   const entryOf = new Map(legend.map((entry, i) => [symbolKey(entry.symbol), i + 1]))
+  const printed = printedSizeIn(others)
 
-  return charts.map(({ grid, placed }) => {
-    const width = grid.xs.length - 1
-    const height = grid.ys.length - 1
+  return charts.map((chart) => {
+    const { width, height, placed } = chart
     const cells = new Uint16Array(width * height)
     for (const { cell, key } of placed) cells[cell] = entryOf.get(key) ?? 0
-    return { width, height, cells, legend }
+    const sourcePages = chart.pages.map(({ page, offset, ...size }) => ({
+      page,
+      across: [offset.column + 1, offset.column + size.width] as [number, number],
+      down: [offset.row + 1, offset.row + size.height] as [number, number],
+    }))
+    const importIssues: ImportIssue[] =
+      printed && (printed.width !== width || printed.height !== height)
+        ? [{ kind: 'size mismatch', printed, parsed: { width, height } }]
+        : []
+    return { width, height, cells, legend, sourcePages, importIssues }
   })
 }

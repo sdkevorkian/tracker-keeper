@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto'
 import { expect, test } from 'vitest'
 import { createWorkspace } from '../../src/workspace/workspace.ts'
 import { readChartsInProcess } from '../../src/workspace/import/readCharts.ts'
@@ -237,4 +238,23 @@ test('DMC threads get their color from the bundled table, and other brands get n
     '#FCFBF8',
     undefined,
   ])
+})
+
+test("a chart's source reference names its source PDF by the PDF's SHA-256", async () => {
+  const workspace = createWorkspace({ readCharts: readChartsInProcess })
+  const pdf = buildChartPdf({
+    fonts: { StitchSymbols: { glyphs: { 0x41: 'square' } } },
+    symbols: { '#': { font: 'StitchSymbols', code: 0x41 } },
+    pages: [
+      { type: 'chart', cell: { width: 10, height: 10 }, grid: ['#'] },
+      {
+        type: 'legend',
+        entries: [{ symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 1 }],
+      },
+    ],
+  })
+
+  const chartId = await workspace.importPdf(pdf)
+
+  expect(workspace.state.charts.get(chartId)!.source.pdfSha256).toBe(createHash('sha256').update(pdf).digest('hex'))
 })
