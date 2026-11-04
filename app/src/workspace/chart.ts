@@ -22,6 +22,31 @@ export interface LegendEntry {
   printedCount: number
 }
 
+/** Which stitches one page of the source PDF covers, numbered from 1 like a printed chart's margins. Ends are inclusive. */
+export interface SourcePage {
+  /** The page's number in the source PDF, from 1. */
+  page: number
+  across: [first: number, last: number]
+  down: [first: number, last: number]
+}
+
+/** What the chart was imported from, kept so the source PDF can be opened at the matching page. */
+export interface SourceReference {
+  /** The source PDF's SHA-256, as lowercase hex, so the stitcher's copy can be told from any other. */
+  pdfSha256: string
+  pages: SourcePage[]
+}
+
+export interface Size {
+  width: number
+  height: number
+}
+
+/** A problem the import found that suggests the chart doesn't match its source PDF. */
+export type ImportIssue =
+  /** The chart's size differs from the size the source PDF prints, often from pages joined wrongly. */
+  { kind: 'size mismatch'; printed: Size; parsed: Size }
+
 export interface Chart {
   id: string
   width: number
@@ -29,4 +54,6 @@ export interface Chart {
   /** One value per cell, row by row from the top left: 0 is blank, n is legend entry n (1-based). */
   cells: Uint16Array
   legend: LegendEntry[]
+  source: SourceReference
+  importIssues: ImportIssue[]
 }

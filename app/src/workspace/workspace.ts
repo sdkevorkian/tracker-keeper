@@ -53,10 +53,15 @@ export function createWorkspace({ readCharts }: WorkspaceOptions): Workspace {
       }
       const parsed = await readWithTimeout(readCharts, bytes)
       if (parsed.length === 0) throw new Error('No chart found in this PDF')
+      const pdfSha256 = await sha256(bytes)
       const charts = new Map(state.charts)
-      const ids = parsed.map((chart) => {
+      const ids = parsed.map(({ sourcePages, ...chart }) => {
         const id = crypto.randomUUID()
-        charts.set(id, { id, ...chart })
+        charts.set(id, {
+          id,
+          ...chart,
+          source: { pdfSha256, pages: sourcePages },
+        })
         return id
       })
       update({ ...state, charts })
@@ -69,6 +74,12 @@ export function createWorkspace({ readCharts }: WorkspaceOptions): Workspace {
 function isPdf(bytes: Uint8Array) {
   const start = new TextDecoder('latin1').decode(bytes.subarray(0, 1024))
   return start.includes('%PDF-')
+}
+
+async function sha256(bytes: Uint8Array) {
+  // A copy, since the bytes may sit on a SharedArrayBuffer, which digest refuses.
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice()))
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
 async function readWithTimeout(readCharts: ReadCharts, bytes: Uint8Array) {

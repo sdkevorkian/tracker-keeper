@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, type Page } from '@playwright/test'
-import type { Capability, Driver, ShownStitches } from './driver.ts'
+import type { Capability, Driver, ShownImportIssue, ShownStitches, SourcePagePlacement } from './driver.ts'
 
 /** The page, with the long tasks seen since the last import began. */
 type WatchedWindow = Window & { longTasks?: number[] }
@@ -58,6 +58,14 @@ export class BrowserDriver implements Driver {
     if (!shown) throw new Error(`The chart's label doesn't say which stitches it shows: "${label}"`)
     const [left, right, top, bottom] = shown.slice(1).map(Number)
     return { across: [left, right], down: [top, bottom] }
+  }
+
+  async sourcePagePlacements(): Promise<SourcePagePlacement[]> {
+    throw new Error("The app doesn't show where source pages sit yet")
+  }
+
+  async importIssues(): Promise<ShownImportIssue[]> {
+    throw new Error("The app doesn't show import issues yet")
   }
 
   async zoomIn() {

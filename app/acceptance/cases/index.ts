@@ -1,4 +1,5 @@
 // Every acceptance case file. Each runner registers all of them against its driver.
 import importCases from './import.ts'
+import multiPageCases from './multiPage.ts'
 
-export const cases = [importCases]
+export const cases = [importCases, multiPageCases]
