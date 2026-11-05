@@ -25,7 +25,7 @@ A change to a chart that makes it match its source PDF more closely, fixing some
 _Avoid_: Fix, edit, adjustment
 
 **Import issue**:
-A problem the import finds in a chart that suggests it doesn't match its source PDF: a legend count mismatch, a symbol not in the legend, a legend entry with no stitches, or a size mismatch. Each one belongs to a chart, never to a project, and names the cells it concerns; it goes away once corrections make it no longer true, or once the stitcher dismisses it as matching the source PDF.
+A problem the import finds in a chart that suggests it doesn't match its source PDF: a legend count mismatch, a symbol not in the legend, a legend entry with no stitches, a size mismatch, or a chart with no symbols to read (its cells are filled in, as when the source PDF prints it only as color blocks). Each one belongs to a chart, never to a project, and names the cells it concerns; it goes away once corrections make it no longer true, or once the stitcher dismisses it as matching the source PDF.
 _Avoid_: Warning, error, flag, problem, discrepancy
 
 **Symbol**:

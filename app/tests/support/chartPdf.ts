@@ -24,8 +24,17 @@ export interface SymbolDescription {
 
 export type PageDescription = ChartPage | LegendPage | TextPage | TablePage
 
+/** How a chart page prints each cell. */
+export type PdfStyle = 'symbols' | 'symbols on color' | 'color blocks'
+
 export interface ChartPage {
   type: 'chart'
+  /** Symbols on white by default. Any style with color needs `colors`. */
+  style?: PdfStyle
+  /** Each symbol's fill color, as `#RRGGBB`, for styles that print color. */
+  colors?: Record<string, string>
+  /** Outlines each colored cell, on top of the grid lines, as some chart software does. */
+  outlineCells?: boolean
   /** Cell size in points. Cells need not be square. */
   cell: { width: number; height: number }
   /** One string per row, one symbol name per cell, '.' for a blank cell. */
@@ -85,6 +94,7 @@ const TEXT_SIZE = 10
 const LINE_HEIGHT = 14
 const LEGEND_ROW_HEIGHT = 16
 const GRID_LINE_WIDTH = 0.5
+const CELL_OUTLINE_WIDTH = 0.25
 // The grey that overlap shading is filled with.
 const SHADE = 0.85
 const MARGIN_NUMBER_EVERY = 10
@@ -390,16 +400,43 @@ function marginNumbers(part: ChartPart) {
   return ops
 }
 
+/** The fill operator for a `#RRGGBB` color. */
+function fillColor(color: string) {
+  const channels = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255)
+  return `${channels.map((channel) => channel.toFixed(3)).join(' ')} rg`
+}
+
+/** Fills each stitched cell with its symbol's color, under the grid and symbols. */
+function cellColors(part: ChartPart) {
+  const { width, height } = part.cell
+  const top = PAGE_HEIGHT - MARGIN
+  const ops: string[] = []
+  part.grid.forEach((row, rowIndex) => {
+    ;[...row].forEach((name, column) => {
+      if (name === BLANK) return
+      const color = part.colors?.[name]
+      if (!color) throw new Error(`Chart prints "${name}" in color, but colors has none for it`)
+      const box = `${MARGIN + column * width} ${top - (rowIndex + 1) * height} ${width} ${height}`
+      ops.push(`${fillColor(color)} ${box} re f`)
+      if (part.outlineCells) ops.push(`${CELL_OUTLINE_WIDTH} w ${box} re S`)
+    })
+  })
+  return ops.length ? [...ops, '0 g'] : []
+}
+
 function chartContent(page: ChartPart, symbols: Record<string, SymbolDescription>, fontKeys: Map<string, string>) {
   const { width, height } = page.cell
   const size = Math.min(width, height)
   const top = PAGE_HEIGHT - MARGIN
+  const style = page.style ?? 'symbols'
   const ops = [
+    ...(style === 'symbols' ? [] : cellColors(page)),
     ...(page.overlapMarks ? overlapShading(page) : []),
     ...gridLines(page.cell, page.grid.length, Math.max(...page.grid.map((row) => row.length))),
   ]
   if (page.marginNumbers) ops.push(...marginNumbers(page))
   if (page.overlapMarks) ops.push(...alignmentArrows(page))
+  if (style === 'color blocks') return ops.join('\n')
   page.grid.forEach((row, rowIndex) => {
     ;[...row].forEach((name, column) => {
       if (name === BLANK) return
