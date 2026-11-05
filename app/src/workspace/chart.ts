@@ -48,9 +48,30 @@ export type ImportIssue =
   | { kind: 'size mismatch'; printed: Size; parsed: Size }
   /** The chart's cells are filled in but hold no symbols, as when a PDF prints it only as color blocks. */
   | { kind: 'no symbols' }
+  /** A legend entry's printed stitch count differs from how many cells the import gave it. */
+  | {
+      kind: 'legend count mismatch'
+      /** The legend entry, numbered from 1 as in `cells`. */
+      entry: number
+      printed: number
+      parsed: number
+      /** The entry's cells, as indexes into `cells`. */
+      cells: number[]
+    }
+  /** A legend entry that no cell uses. */
+  | { kind: 'legend entry with no stitches'; /** The legend entry, numbered from 1 as in `cells`. */ entry: number }
+  /** A symbol printed in the chart that the legend doesn't list. Its cells are left blank. */
+  | {
+      kind: 'symbol not in legend'
+      symbol: SymbolKey
+      /** The symbol's cells, as indexes into `cells`. */
+      cells: number[]
+    }
 
 export interface Chart {
   id: string
+  /** The chart's name, from its source PDF where it prints one. */
+  title?: string
   width: number
   height: number
   /** One value per cell, row by row from the top left: 0 is blank, n is legend entry n (1-based). */

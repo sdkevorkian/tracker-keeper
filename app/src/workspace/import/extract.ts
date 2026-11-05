@@ -32,12 +32,20 @@ export interface Path {
   commands: PathCommand[]
   stroke: boolean
   fill: boolean
+  /** The fill color as `#RRGGBB`, when the path is filled. */
+  fillColor?: string
   lineWidth: number
 }
 
 export interface PagePrimitives {
   glyphs: Glyph[]
   paths: Path[]
+}
+
+export interface PdfPrimitives {
+  /** The title in the PDF's metadata, if it has one. */
+  title?: string
+  pages: PagePrimitives[]
 }
 
 type Matrix = [number, number, number, number, number, number]
@@ -105,6 +113,8 @@ interface TextState {
 interface GraphicsState {
   ctm: Matrix
   lineWidth: number
+  /** As `#RRGGBB`. pdf.js turns every fill color space into RGB. */
+  fillColor: string
   text: TextState
 }
 
@@ -143,7 +153,7 @@ function readPath(data: ArrayLike<number>, ctm: Matrix): PathCommand[] {
 /** Far more pages than any chart PDF, so a PDF claiming more can't keep import busy for ages. */
 const MAX_PAGES = 500
 
-export async function extractPages(bytes: Uint8Array, signal?: AbortSignal): Promise<PagePrimitives[]> {
+export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promise<PdfPrimitives> {
   const loading = getDocument({
     // pdf.js takes ownership of the buffer it is given.
     data: bytes.slice(),
@@ -169,6 +179,7 @@ export async function extractPages(bytes: Uint8Array, signal?: AbortSignal): Pro
       let state: GraphicsState = {
         ctm: IDENTITY,
         lineWidth: 1,
+        fillColor: '#000000',
         text: {
           font: '',
           ascent: 0.8,
@@ -203,6 +214,9 @@ export async function extractPages(bytes: Uint8Array, signal?: AbortSignal): Pro
             break
           case OPS.setLineWidth:
             state.lineWidth = args[0]
+            break
+          case OPS.setFillRGBColor:
+            state.fillColor = String(args[0]).toUpperCase()
             break
           case OPS.beginText:
             line = text = IDENTITY
@@ -275,6 +289,7 @@ export async function extractPages(bytes: Uint8Array, signal?: AbortSignal): Pro
               commands: readPath(data, state.ctm),
               stroke: STROKES.has(paint),
               fill: FILLS.has(paint),
+              fillColor: FILLS.has(paint) ? state.fillColor : undefined,
               lineWidth: state.lineWidth * scale,
             })
             break
@@ -284,7 +299,9 @@ export async function extractPages(bytes: Uint8Array, signal?: AbortSignal): Pro
       pages.push({ glyphs, paths })
       page.cleanup()
     }
-    return pages
+    const { info } = await document.getMetadata()
+    const title = (info as { Title?: unknown }).Title
+    return { title: typeof title === 'string' ? title : undefined, pages }
   } finally {
     signal?.removeEventListener('abort', stop)
     await loading.destroy()

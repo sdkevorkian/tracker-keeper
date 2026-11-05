@@ -2,9 +2,11 @@
 // symbols, joined into one grid, and a legend page.
 import type { ImportIssue, LegendEntry, Size, SourcePage, SymbolKey } from '../chart.ts'
 import { bundledColor } from '../threads/colors.ts'
-import type { Box, Glyph, PagePrimitives, Path } from './extract.ts'
+import type { Box, Glyph, PagePrimitives, Path, PdfPrimitives } from './extract.ts'
 
 export interface ParsedChart {
+  /** The chart's title, where the PDF prints one. */
+  title?: string
   width: number
   height: number
   cells: Uint16Array
@@ -28,6 +30,11 @@ interface Grid {
 
 function symbolKey(symbol: SymbolKey) {
   return `${symbol.font}\u0000${symbol.code}`
+}
+
+function symbolOf(key: string): SymbolKey {
+  const [font, code] = key.split('\u0000')
+  return { font, code: Number(code) }
 }
 
 function distinct(values: number[]) {
@@ -207,19 +214,44 @@ function columnsOf(glyphs: Glyph[]) {
     .filter(Boolean)
 }
 
-function readLegendRow(line: Glyph[], symbols: Set<string>): LegendEntry | undefined {
+/** The color of a swatch printed on a legend row: a filled shape beside its symbol, no taller than the symbol. */
+function swatchColor(symbol: Glyph, fills: Path[]) {
+  const height = symbol.box.y1 - symbol.box.y0
+  const swatch = fills.find((path) => {
+    const box = boxOfPath(path)
+    const { y } = centre(box)
+    return y >= symbol.box.y0 && y <= symbol.box.y1 && box.y1 - box.y0 <= height && box.x0 >= symbol.box.x1
+  })
+  return swatch?.fillColor
+}
+
+/** A thread as a legend prints it, such as 'DMC 310' or 'DMC BLANC': the brand, then the code as the last word. */
+function readThread(text: string) {
+  const words = text.trim().split(/\s+/)
+  if (words.length < 2) return undefined
+  return { brand: words.slice(0, -1).join(' '), code: words.at(-1)! }
+}
+
+/**
+ * A legend row: the symbol, then its threads, name, strands and printed stitch
+ * count in columns. A blend joins its threads, names and strands with +.
+ */
+function readLegendRow(line: Glyph[], symbolFonts: Set<string>, fills: Path[]): LegendEntry | undefined {
   const [first, ...rest] = line
-  if (!symbols.has(symbolKey(first))) return undefined
+  if (!symbolFonts.has(first.font)) return undefined
   const columns = columnsOf(rest)
-  if (columns.length < 5) return undefined
-  const [brand, code, ...more] = columns
-  const count = Number(more.pop())
-  const strands = Number(more.pop())
-  if (!Number.isInteger(count) || !Number.isInteger(strands)) return undefined
+  if (columns.length < 4) return undefined
+  const count = Number(columns.pop())
+  const strands = columns.pop()!.split('+').map(Number)
+  const names = columns.pop()!.split(' + ')
+  const threads = columns.join(' ').split('+').map(readThread)
+  if (!Number.isInteger(count) || !strands.every(Number.isInteger)) return undefined
+  if (threads.length !== strands.length || names.length !== strands.length) return undefined
+  if (!threads.every((thread) => thread !== undefined)) return undefined
   return {
     symbol: { font: first.font, code: first.code },
-    threads: [{ brand, code, name: more.join(' '), strands }],
-    color: bundledColor({ brand, code }),
+    threads: threads.map((thread, i) => ({ ...thread, name: names[i].trim(), strands: strands[i] })),
+    color: (threads.length === 1 ? bundledColor(threads[0]) : undefined) ?? swatchColor(first, fills),
     printedCount: count,
   }
 }
@@ -276,6 +308,29 @@ function printedSizeIn(pages: PagePrimitives[]): Size | undefined {
     }
   }
   return undefined
+}
+
+/** A line labelled 'Title', as on an info page, in a table or after a colon. */
+const PRINTED_TITLE = /^title\s*:?\s+(.+)$/i
+
+/** The chart's title printed on the PDF's other pages, if any. */
+function printedTitleIn(pages: PagePrimitives[]) {
+  for (const page of pages) {
+    for (const line of linesOf(page.glyphs)) {
+      const title = PRINTED_TITLE.exec(columnsOf(line).join(' '))
+      if (title) return title[1].trim()
+    }
+  }
+  return undefined
+}
+
+/** Titles PDF software writes to the metadata when the author gave none. */
+const PLACEHOLDER_TITLES = /^(document|untitled)?$/i
+
+/** The metadata's title, unless it is a placeholder. */
+function realTitle(title: string | undefined) {
+  const trimmed = title?.trim()
+  return trimmed && !PLACEHOLDER_TITLES.test(trimmed) ? trimmed : undefined
 }
 
 function boxOfPath(path: Path): Box {
@@ -503,7 +558,16 @@ function designsOf(printings: JoinedChart[]): Design[] {
   }))
 }
 
-export function parseCharts(pages: PagePrimitives[]): ParsedChart[] {
+/** The indexes of the cells holding `value`. */
+function cellsOf(cells: Uint16Array, value: number) {
+  const found: number[] = []
+  cells.forEach((cell, i) => {
+    if (cell === value) found.push(i)
+  })
+  return found
+}
+
+export function parseCharts({ title: metadataTitle, pages }: PdfPrimitives): ParsedChart[] {
   const runs: ChartPage[][] = []
   const others: { page: number; primitives: PagePrimitives }[] = []
   let run: ChartPage[] | undefined
@@ -535,8 +599,12 @@ export function parseCharts(pages: PagePrimitives[]): ParsedChart[] {
       .filter(({ page }) => page < until && (i === 0 || page > firstPage))
       .map(({ primitives }) => primitives)
     const { width, height, placed } = chart
-    const symbols = new Set(placed.map(({ key }) => key))
-    const legend = own.flatMap((page) => linesOf(page.glyphs).flatMap((line) => readLegendRow(line, symbols) ?? []))
+    // Legend rows start with a symbol in a font the chart's symbols use, even when the chart doesn't use that symbol.
+    const symbolFonts = new Set(placed.map(({ key }) => symbolOf(key).font))
+    const legend = own.flatMap((page) => {
+      const fills = page.paths.filter((path) => path.fill && !path.stroke)
+      return linesOf(page.glyphs).flatMap((line) => readLegendRow(line, symbolFonts, fills) ?? [])
+    })
     const entryOf = new Map(legend.map((entry, n) => [symbolKey(entry.symbol), n + 1]))
     const printed = printedSizeIn(own)
     const cells = new Uint16Array(width * height)
@@ -551,6 +619,41 @@ export function parseCharts(pages: PagePrimitives[]): ParsedChart[] {
       importIssues.push({ kind: 'size mismatch', printed, parsed: { width, height } })
     }
     if (placed.length === 0 && chart.pages.some((page) => page.filled)) importIssues.push({ kind: 'no symbols' })
-    return { width, height, cells, legend, sourcePages, importIssues }
+    legend.forEach(({ printedCount }, index) => {
+      const entry = index + 1
+      const entryCells = cellsOf(cells, entry)
+      if (entryCells.length === 0) {
+        importIssues.push({ kind: 'legend entry with no stitches', entry })
+      } else if (entryCells.length !== printedCount) {
+        importIssues.push({
+          kind: 'legend count mismatch',
+          entry,
+          printed: printedCount,
+          parsed: entryCells.length,
+          cells: entryCells,
+        })
+      }
+    })
+    // Pages that repeat stitches place them more than once, so cells are gathered in sets.
+    const unlisted = new Map<string, Set<number>>()
+    for (const { cell, key } of placed) {
+      if (!entryOf.has(key)) unlisted.set(key, (unlisted.get(key) ?? new Set()).add(cell))
+    }
+    for (const [key, unlistedCells] of unlisted) {
+      importIssues.push({
+        kind: 'symbol not in legend',
+        symbol: symbolOf(key),
+        cells: [...unlistedCells].sort((a, b) => a - b),
+      })
+    }
+    return {
+      title: printedTitleIn(own) ?? realTitle(metadataTitle),
+      width,
+      height,
+      cells,
+      legend,
+      sourcePages,
+      importIssues,
+    }
   })
 }

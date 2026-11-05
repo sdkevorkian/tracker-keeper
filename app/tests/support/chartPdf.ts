@@ -3,6 +3,8 @@
 import { buildTrueTypeFont, type Shape } from './trueTypeFont.ts'
 
 export interface ChartPdfDescription {
+  /** The title in the PDF's metadata. None by default. */
+  title?: string
   /** Embedded symbol fonts, by the name written to the PDF. */
   fonts: Record<string, FontDescription>
   /** The chart's symbols, by the one-character name chart grids and legend entries use. */
@@ -15,6 +17,10 @@ export interface FontDescription {
   glyphs: Record<number, Shape>
   /** Set to false to leave out the ToUnicode map, as some chart PDFs do. */
   toUnicode?: boolean
+  /** What the ToUnicode map says each character code is, where it isn't its shape. */
+  unicode?: Record<number, string>
+  /** Each glyph's advance, in thousandths of the font size. 1000 by default. */
+  advance?: number
 }
 
 export interface SymbolDescription {
@@ -51,6 +57,8 @@ export interface ChartPage {
 
 export interface LegendPage {
   type: 'legend'
+  /** Heading lines above the entries, one string per column, in any script. */
+  headings?: string[][]
   entries: LegendEntry[]
 }
 
@@ -68,14 +76,23 @@ export interface TablePage {
   rows: string[][]
 }
 
-export interface LegendEntry {
+export type LegendEntry = {
   /** Symbol name, as used in chart grids. */
   symbol: string
+  /** The stitch count the legend prints. */
+  count: number
+  /** A square of this color, as `#RRGGBB`, printed between the symbol and the thread. None by default. */
+  swatch?: string
+} & (
+  | LegendThread
+  /** A blend: several threads in one row, joined by +. */
+  | { threads: LegendThread[] }
+)
+
+export interface LegendThread {
   thread: Thread
   name: string
   strands: number
-  /** The stitch count the legend prints. */
-  count: number
 }
 
 export interface Thread {
@@ -101,7 +118,14 @@ const MARGIN_NUMBER_EVERY = 10
 const MARGIN_NUMBER_GAP = 4
 // Helvetica's digits are all this wide, in thousandths of the font size.
 const DIGIT_WIDTH = 556
-const LEGEND_COLUMNS = { symbol: 0, brand: 24, code: 74, name: 114, strands: 284, count: 324 }
+const LEGEND_COLUMNS = { symbol: 0, swatch: 16, brand: 44, code: 94, name: 174, strands: 344, count: 394 }
+// The columns a heading line's strings head, in order.
+const HEADED_COLUMNS = ['symbol', 'brand', 'name', 'strands', 'count'] as const
+// Headings can be in any script, so they are set in a generated font that maps each code to its character.
+const HEADING_FONT = 'LegendText'
+const HEADING_ADVANCE = 500
+const SWATCH_SIZE = 8
+const FIRST_HEADING_CODE = 0x21
 
 // What the ToUnicode map says each shape is.
 const SHAPE_UNICODE: Record<Shape, string> = {
@@ -146,7 +170,7 @@ class PdfWriter {
     return id
   }
 
-  toBytes(root: number) {
+  toBytes(root: number, info?: number) {
     const parts = [encoder.encode('%PDF-1.7\n%\xe2\xe3\xcf\xd3\n')]
     let offset = parts[0].length
     const offsets: number[] = []
@@ -162,7 +186,7 @@ class PdfWriter {
       '0000000000 65535 f ',
       ...offsets.map((value) => `${String(value).padStart(10, '0')} 00000 n `),
       'trailer',
-      `<< /Size ${this.objects.length + 1} /Root ${root} 0 R >>`,
+      `<< /Size ${this.objects.length + 1} /Root ${root} 0 R${info ? ` /Info ${info} 0 R` : ''} >>`,
       'startxref',
       String(offset),
       '%%EOF',
@@ -182,11 +206,11 @@ function concat(parts: Uint8Array[]) {
   return out
 }
 
-function toUnicodeCMap(glyphs: Record<number, Shape>) {
-  const entries = Object.entries(glyphs).map(
-    ([code, shape]) =>
-      `${hex(Number(code))} <${SHAPE_UNICODE[shape].charCodeAt(0).toString(16).padStart(4, '0').toUpperCase()}>`,
-  )
+function toUnicodeCMap(font: FontDescription) {
+  const entries = Object.entries(font.glyphs).map(([code, shape]) => {
+    const unicode = font.unicode?.[Number(code)] ?? SHAPE_UNICODE[shape]
+    return `${hex(Number(code))} <${unicode.charCodeAt(0).toString(16).padStart(4, '0').toUpperCase()}>`
+  })
   return [
     '/CIDInit /ProcSet findresource begin',
     '12 dict begin',
@@ -217,13 +241,19 @@ function embedFont(pdf: PdfWriter, name: string, font: FontDescription) {
     `<< /Type /FontDescriptor /FontName /${name} /Flags 4 /FontBBox [0 0 1000 1000] /ItalicAngle 0` +
       ` /Ascent 900 /Descent -100 /CapHeight 800 /StemV 80 /FontFile2 ${fontFile} 0 R >>`,
   )
-  const widths = Array.from({ length: lastChar - firstChar + 1 }, () => 1000).join(' ')
+  const widths = Array.from({ length: lastChar - firstChar + 1 }, () => font.advance ?? 1000).join(' ')
   const toUnicode =
-    font.toUnicode === false ? '' : ` /ToUnicode ${pdf.addStream('', encoder.encode(toUnicodeCMap(font.glyphs)))} 0 R`
+    font.toUnicode === false ? '' : ` /ToUnicode ${pdf.addStream('', encoder.encode(toUnicodeCMap(font)))} 0 R`
   return pdf.add(
     `<< /Type /Font /Subtype /TrueType /BaseFont /${name} /FirstChar ${firstChar} /LastChar ${lastChar}` +
       ` /Widths [${widths}] /FontDescriptor ${descriptor} 0 R${toUnicode} >>`,
   )
+}
+
+/** A PDF text string in UTF-16, so it can hold any script. */
+function pdfTextString(value: string) {
+  const units = Array.from({ length: value.length }, (_, i) => value.charCodeAt(i).toString(16).padStart(4, '0'))
+  return `<FEFF${units.join('').toUpperCase()}>`
 }
 
 function pdfString(value: string) {
@@ -252,22 +282,72 @@ function textContent(page: TextPage) {
   return page.lines.map((line, i) => text(MARGIN, PAGE_HEIGHT - MARGIN - (i + 1) * LINE_HEIGHT, line)).join('\n')
 }
 
-function legendContent(page: LegendPage, symbols: Record<string, SymbolDescription>, fontKeys: Map<string, string>) {
-  return page.entries
-    .flatMap((entry, i) => {
-      const y = PAGE_HEIGHT - MARGIN - (i + 1) * LEGEND_ROW_HEIGHT
-      const symbol = symbolFor(entry.symbol, symbols)
-      const column = (name: keyof typeof LEGEND_COLUMNS) => MARGIN + LEGEND_COLUMNS[name]
-      return [
-        `BT /${fontKeys.get(symbol.font)} ${TEXT_SIZE} Tf 1 0 0 1 ${column('symbol')} ${y} Tm ${hex(symbol.code)} Tj ET`,
-        text(column('brand'), y, entry.thread.brand),
-        text(column('code'), y, entry.thread.code),
-        text(column('name'), y, entry.name),
-        text(column('strands'), y, String(entry.strands)),
-        text(column('count'), y, String(entry.count)),
-      ]
-    })
-    .join('\n')
+function joined<T>(items: T[], format: (item: T) => string, separator: string) {
+  return items.map(format).join(separator)
+}
+
+/** A character code for every character the PDF's legend headings use, in the heading font. */
+function headingCodes(pages: PageDescription[]) {
+  const characters = new Set(
+    pages.flatMap((page) =>
+      page.type === 'legend' ? (page.headings ?? []).flat().flatMap((value) => [...value]) : [],
+    ),
+  )
+  if (characters.size > 0xff - FIRST_HEADING_CODE) throw new Error('Legend headings use too many characters')
+  return new Map([...characters].map((character, i) => [character, FIRST_HEADING_CODE + i]))
+}
+
+function legendContent(
+  page: LegendPage,
+  symbols: Record<string, SymbolDescription>,
+  fontKeys: Map<string, string>,
+  headingCodeOf: Map<string, number>,
+) {
+  const column = (name: keyof typeof LEGEND_COLUMNS) => MARGIN + LEGEND_COLUMNS[name]
+  const rowY = (row: number) => PAGE_HEIGHT - MARGIN - (row + 1) * LEGEND_ROW_HEIGHT
+  const headings = page.headings ?? []
+  const headingOps = headings.flatMap((line, row) =>
+    line.map((value, c) => {
+      const codes = [...value].map((character) => headingCodeOf.get(character)!.toString(16).padStart(2, '0')).join('')
+      return `BT /${fontKeys.get(HEADING_FONT)} ${TEXT_SIZE} Tf 1 0 0 1 ${column(HEADED_COLUMNS[c])} ${rowY(row)} Tm <${codes}> Tj ET`
+    }),
+  )
+  const entryOps = page.entries.flatMap((entry, i) => {
+    const y = rowY(headings.length + i)
+    const symbol = symbolFor(entry.symbol, symbols)
+    return [
+      `BT /${fontKeys.get(symbol.font)} ${TEXT_SIZE} Tf 1 0 0 1 ${column('symbol')} ${y} Tm ${hex(symbol.code)} Tj ET`,
+      ...(entry.swatch
+        ? [`${fillColor(entry.swatch)} ${column('swatch')} ${y} ${SWATCH_SIZE} ${SWATCH_SIZE} re f 0 g`]
+        : []),
+      ...('threads' in entry
+        ? [
+            text(
+              column('brand'),
+              y,
+              joined(entry.threads, ({ thread }) => `${thread.brand} ${thread.code}`, ' + '),
+            ),
+            text(
+              column('name'),
+              y,
+              joined(entry.threads, ({ name }) => name, ' + '),
+            ),
+            text(
+              column('strands'),
+              y,
+              joined(entry.threads, ({ strands }) => String(strands), '+'),
+            ),
+          ]
+        : [
+            text(column('brand'), y, entry.thread.brand),
+            text(column('code'), y, entry.thread.code),
+            text(column('name'), y, entry.name),
+            text(column('strands'), y, String(entry.strands)),
+          ]),
+      text(column('count'), y, String(entry.count)),
+    ]
+  })
+  return [...headingOps, ...entryOps].join('\n')
 }
 
 /** A solid grid of `rows` × `columns` cells from the top left margin. */
@@ -487,9 +567,18 @@ export function buildChartPdf(description: ChartPdfDescription): Uint8Array {
   const catalog = pdf.reserve()
   const pagesId = pdf.reserve()
 
+  const headings = headingCodes(description.pages)
+  const fonts: Record<string, FontDescription> = { ...description.fonts }
+  if (headings.size) {
+    fonts[HEADING_FONT] = {
+      glyphs: Object.fromEntries([...headings.values()].map((code) => [code, 'square'])),
+      unicode: Object.fromEntries([...headings].map(([character, code]) => [code, character])),
+      advance: HEADING_ADVANCE,
+    }
+  }
   const fontKeys = new Map<string, string>()
   const fontRefs: string[] = []
-  Object.entries(description.fonts).forEach(([name, font], i) => {
+  Object.entries(fonts).forEach(([name, font], i) => {
     const key = `F${i + 1}`
     fontKeys.set(name, key)
     fontRefs.push(`/${key} ${embedFont(pdf, name, font)} 0 R`)
@@ -504,7 +593,7 @@ export function buildChartPdf(description: ChartPdfDescription): Uint8Array {
       case 'chart':
         return chartPages(page).map((part) => chartContent(part, description.symbols, fontKeys))
       case 'legend':
-        return [legendContent(page, description.symbols, fontKeys)]
+        return [legendContent(page, description.symbols, fontKeys, headings)]
       case 'text':
         return [textContent(page)]
       case 'table':
@@ -522,5 +611,6 @@ export function buildChartPdf(description: ChartPdfDescription): Uint8Array {
 
   pdf.set(pagesId, `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`)
   pdf.set(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R >>`)
-  return pdf.toBytes(catalog)
+  const info = description.title === undefined ? undefined : pdf.add(`<< /Title ${pdfTextString(description.title)} >>`)
+  return pdf.toBytes(catalog, info)
 }

@@ -13,6 +13,8 @@ export interface Workspace {
   subscribe(listener: (state: WorkspaceState) => void): () => void
   /** Imports the charts in a PDF and returns the first one's ID. */
   importPdf(bytes: Uint8Array): Promise<string>
+  /** Gives a chart the stitcher's own title, replacing any from its source PDF. */
+  renameChart(chartId: string, title: string): void
 }
 
 /** Far larger than any chart PDF, but small enough that reading one can't exhaust memory. */
@@ -66,6 +68,11 @@ export function createWorkspace({ readCharts }: WorkspaceOptions): Workspace {
       })
       update({ ...state, charts })
       return ids[0]
+    },
+    renameChart(chartId, title) {
+      const chart = state.charts.get(chartId)
+      if (!chart) throw new Error('No such chart')
+      update({ ...state, charts: new Map(state.charts).set(chartId, { ...chart, title }) })
     },
   }
 }

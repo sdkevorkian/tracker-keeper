@@ -15,6 +15,8 @@ function patternGrid(width: number, height: number) {
 
 async function importChart(chart: Omit<ChartPage, 'type' | 'cell'>, extraPages: PageDescription[] = []) {
   const workspace = createWorkspace({ readCharts: readChartsInProcess })
+  // The legend lists the symbols the grid uses, each with its true count.
+  const count = (symbol: string) => [...chart.grid.join('')].filter((cell) => cell === symbol).length
   const chartId = await workspace.importPdf(
     buildChartPdf({
       fonts: { StitchSymbols: { glyphs: { 0x41: 'square', 0x42: 'triangle', 0x43: 'square' } } },
@@ -28,10 +30,10 @@ async function importChart(chart: Omit<ChartPage, 'type' | 'cell'>, extraPages: 
         {
           type: 'legend',
           entries: [
-            { symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 1 },
-            { symbol: '^', thread: { brand: 'DMC', code: '321' }, name: 'Red', strands: 2, count: 1 },
-            { symbol: '@', thread: { brand: 'DMC', code: '995' }, name: 'Blue', strands: 2, count: 1 },
-          ],
+            { symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: count('#') },
+            { symbol: '^', thread: { brand: 'DMC', code: '321' }, name: 'Red', strands: 2, count: count('^') },
+            { symbol: '@', thread: { brand: 'DMC', code: '995' }, name: 'Blue', strands: 2, count: count('@') },
+          ].filter((entry) => entry.count > 0),
         },
         ...extraPages,
       ],

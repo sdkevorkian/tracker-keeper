@@ -1,11 +1,27 @@
 // Reaches the app through the headless Workspace, in-process.
 import { createWorkspace } from '../../src/workspace/workspace.ts'
 import { readChartsInProcess } from '../../src/workspace/import/readCharts.ts'
-import type { Capability, Driver, ShownChart, ShownImportIssue, ShownStitches, SourcePagePlacement } from './driver.ts'
+import type {
+  Capability,
+  Driver,
+  ShownChart,
+  ShownImportIssue,
+  ShownLegendEntry,
+  ShownStitches,
+  SourcePagePlacement,
+  Stitch,
+} from './driver.ts'
 
 export class WorkspaceDriver implements Driver {
   readonly name = 'Workspace'
-  readonly capabilities: ReadonlySet<Capability> = new Set(['import', 'source pages', 'import issues', 'every chart'])
+  readonly capabilities: ReadonlySet<Capability> = new Set([
+    'import',
+    'source pages',
+    'import issues',
+    'every chart',
+    'legend',
+    'chart title',
+  ])
   private workspace = createWorkspace({ readCharts: readChartsInProcess })
   private chartId?: string
   /** The charts the last import added, in the order it added them. */
@@ -44,10 +60,42 @@ export class WorkspaceDriver implements Driver {
     }))
   }
 
+  async chartTitle() {
+    return this.chart().title
+  }
+
+  async legend(): Promise<ShownLegendEntry[]> {
+    return this.chart().legend.map(({ threads, printedCount, color }) => ({
+      threads: threads.map(({ brand, code, name, strands }) => ({ thread: `${brand} ${code}`, name, strands })),
+      printedStitches: printedCount,
+      color,
+    }))
+  }
+
   async importIssues(): Promise<ShownImportIssue[]> {
-    return this.chart().importIssues.map((issue) =>
-      issue.kind === 'size mismatch' ? { kind: issue.kind, printed: issue.printed, parsed: issue.parsed } : issue,
-    )
+    const { width, legend, importIssues } = this.chart()
+    const stitch = (cell: number): Stitch => [(cell % width) + 1, Math.floor(cell / width) + 1]
+    const thread = (entry: number) => legend[entry - 1].threads.map(({ brand, code }) => `${brand} ${code}`).join(' + ')
+    return importIssues.map((issue): ShownImportIssue => {
+      switch (issue.kind) {
+        case 'size mismatch':
+          return { kind: issue.kind, printed: issue.printed, parsed: issue.parsed }
+        case 'no symbols':
+          return issue
+        case 'legend count mismatch':
+          return {
+            kind: issue.kind,
+            thread: thread(issue.entry),
+            printed: issue.printed,
+            parsed: issue.parsed,
+            stitches: issue.cells.map(stitch),
+          }
+        case 'symbol not in legend':
+          return { kind: issue.kind, stitches: issue.cells.map(stitch) }
+        case 'legend entry with no stitches':
+          return { kind: issue.kind, thread: thread(issue.entry) }
+      }
+    })
   }
 
   private chart() {

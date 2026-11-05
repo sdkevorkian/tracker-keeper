@@ -30,8 +30,8 @@ export interface PdfPage {
   glyphs: PdfGlyph[]
   /** Straight stroked segments. */
   lines: PdfLine[]
-  /** The box around each filled shape. */
-  fills: { x0: number; y0: number; x1: number; y1: number }[]
+  /** The box around each filled shape, and its color as `#rrggbb`. */
+  fills: { x0: number; y0: number; x1: number; y1: number; color: string }[]
   /** The page's text as pdf.js extracts it, one item per text run. */
   text: { str: string; x: number; y: number }[]
 }
@@ -57,7 +57,7 @@ function boxOf(path: ArrayLike<number>) {
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }
 }
 
-export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> {
+export async function readPdf(bytes: Uint8Array): Promise<{ title?: string; pages: PdfPage[] }> {
   const loading = getDocument({
     data: bytes.slice(),
     disableFontFace: true,
@@ -76,11 +76,15 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
     let font = ''
     let fontEmbedded = false
     let fontSize = 0
+    let fillColor = '#000000'
     let line: Matrix = [1, 0, 0, 1, 0, 0]
     let text: Matrix = line
     operators.fnArray.forEach((fn, i) => {
       const args = operators.argsArray[i]
       switch (fn) {
+        case OPS.setFillRGBColor:
+          fillColor = args[0]
+          break
         case OPS.beginText:
           line = text = [1, 0, 0, 1, 0, 0]
           break
@@ -98,7 +102,7 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
           break
         case OPS.constructPath: {
           const [paint, [path]] = args
-          if (paint === OPS.fill && path) fills.push(boxOf(path))
+          if (paint === OPS.fill && path) fills.push({ ...boxOf(path), color: fillColor })
           if (paint !== OPS.stroke || !path) break
           let x = 0
           let y = 0
@@ -140,6 +144,8 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
       ),
     })
   }
+  const { info } = await document.getMetadata()
+  const title = (info as { Title?: string }).Title
   await loading.destroy()
-  return { pages }
+  return { title, pages }
 }
