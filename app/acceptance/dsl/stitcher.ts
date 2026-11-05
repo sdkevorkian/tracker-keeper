@@ -10,23 +10,24 @@ import {
 } from '../../tests/support/chartPdf.ts'
 import type { Driver, ShownChart, ShownImportIssue, ShownStitches, SourcePagePlacement } from '../drivers/driver.ts'
 
-export type ChartSpec = (
+export type ChartSpec =
   /** One string per row, one symbol per cell, '.' for a blank cell. Symbols are '#' and '^'. */
-  | { grid: string[] }
-  /** A chart this size, in stitches, with every cell stitched. */
-  | { size: { width: number; height: number } }
-) & {
-  /** How many pages the source PDF spreads the chart over. One page by default. */
-  printedOn?: { pagesAcross: number; pagesDown: number }
-  /** Whether the pages print every 10th row and column number in their margins. */
-  marginNumbers?: boolean
-  /** How many rows and columns neighbouring pages repeat. None by default. */
-  overlap?: number
-  /** The size an info page prints for the chart, in stitches. No info page by default. */
-  printedSize?: { width: number; height: number }
-  /** Each PDF style the source PDF prints the whole chart in, in order. Symbols on white by default. */
-  printedIn?: PdfStyle[]
-}
+  (
+    | { grid: string[] }
+    /** A chart this size, in stitches, with every cell stitched. */
+    | { size: { width: number; height: number } }
+  ) & {
+    /** How many pages the source PDF spreads the chart over. One page by default. */
+    printedOn?: { pagesAcross: number; pagesDown: number }
+    /** Whether the pages print every 10th row and column number in their margins. */
+    marginNumbers?: boolean
+    /** How many rows and columns neighbouring pages repeat. None by default. */
+    overlap?: number
+    /** The size an info page prints for the chart, in stitches. No info page by default. */
+    printedSize?: { width: number; height: number }
+    /** Each PDF style the source PDF prints the whole chart in, in order. Symbols on white by default. */
+    printedIn?: PdfStyle[]
+  }
 
 /** Longer than this and a stitcher notices the page freeze. */
 const LONGEST_UNNOTICED_BLOCK_MS = 200

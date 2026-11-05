@@ -9,9 +9,7 @@ function parse(bytes: Uint8Array) {
 
 // Symbol fonts map each character code into the U+F0xx block of their (3,0) cmap.
 function glyphAt(font: opentype.Font, code: number) {
-  const index = (font.tables.cmap as unknown as { glyphIndexMap: Record<number, number> }).glyphIndexMap[
-    0xf000 + code
-  ]
+  const index = (font.tables.cmap as unknown as { glyphIndexMap: Record<number, number> }).glyphIndexMap[0xf000 + code]
   return index === undefined ? undefined : font.glyphs.get(index)
 }
 
@@ -21,9 +19,7 @@ function corners(glyph: opentype.Glyph) {
       .filter((command) => command.type === 'M' || command.type === 'L')
       .map((command) => `${(command as { x: number }).x},${(command as { y: number }).y}`),
   )
-  return [...unique]
-    .map((point) => point.split(',').map(Number))
-    .sort(([ax, ay], [bx, by]) => ax - bx || ay - by)
+  return [...unique].map((point) => point.split(',').map(Number)).sort(([ax, ay], [bx, by]) => ax - bx || ay - by)
 }
 
 test('a symbol font draws the chosen shape at the chosen character code', () => {

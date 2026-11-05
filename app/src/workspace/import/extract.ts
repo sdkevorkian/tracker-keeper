@@ -112,7 +112,7 @@ function readPath(data: ArrayLike<number>, ctm: Matrix): PathCommand[] {
   const commands: PathCommand[] = []
   const points = (at: number, count: number) =>
     Array.from({ length: count }, (_, i): Point => apply(ctm, [data[at + i * 2], data[at + i * 2 + 1]]))
-  for (let at = 0; at < data.length; ) {
+  for (let at = 0; at < data.length;) {
     switch (data[at++]) {
       case DRAW.moveTo:
         commands.push({ type: 'move', to: points(at, 1)[0] })

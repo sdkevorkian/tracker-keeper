@@ -60,7 +60,11 @@ test('a stitcher can switch the theme to dark mode and back', () => {
 
 test('a stitcher who picks a PDF with no chart in it is told so', async () => {
   openIn({ userAgentData: { brands: [{ brand: 'Chromium', version: '141' }] } })
-  const pdf = buildChartPdf({ fonts: {}, symbols: {}, pages: [{ type: 'text', lines: ['How to stitch', 'Use two strands'] }] })
+  const pdf = buildChartPdf({
+    fonts: {},
+    symbols: {},
+    pages: [{ type: 'text', lines: ['How to stitch', 'Use two strands'] }],
+  })
 
   fireEvent.change(screen.getByLabelText('Chart PDF'), {
     target: { files: [new File([pdf.slice()], 'instructions.pdf', { type: 'application/pdf' })] },

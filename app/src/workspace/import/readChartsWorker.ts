@@ -4,7 +4,10 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { readChartsInProcess } from './readCharts.ts'
 
 export type ReadChartsRequest = { id: number; bytes: Uint8Array }
-export type ReadChartsResponse = { id: number } & ({ charts: Awaited<ReturnType<typeof readChartsInProcess>> } | { error: string })
+export type ReadChartsResponse = { id: number } & (
+  | { charts: Awaited<ReturnType<typeof readChartsInProcess>> }
+  | { error: string }
+)
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 

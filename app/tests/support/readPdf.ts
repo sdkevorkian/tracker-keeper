@@ -46,7 +46,7 @@ const standardFontDataUrl = fileURLToPath(
 function boxOf(path: ArrayLike<number>) {
   const xs: number[] = []
   const ys: number[] = []
-  for (let at = 0; at < path.length; ) {
+  for (let at = 0; at < path.length;) {
     const count = PATH_ARGUMENTS[path[at++]]
     for (let i = 0; i < count; i += 2) {
       xs.push(path[at + i])
@@ -102,7 +102,7 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
           if (paint !== OPS.stroke || !path) break
           let x = 0
           let y = 0
-          for (let at = 0; at < path.length; ) {
+          for (let at = 0; at < path.length;) {
             const op = path[at++]
             if (op !== MOVE_TO && op !== LINE_TO) {
               throw new Error(`readPdf reads only straight lines, not path operation ${op}`)
@@ -136,9 +136,7 @@ export async function readPdf(bytes: Uint8Array): Promise<{ pages: PdfPage[] }> 
       lines,
       fills,
       text: content.items.flatMap((item) =>
-        'str' in item && item.str.trim() !== ''
-          ? [{ str: item.str, x: item.transform[4], y: item.transform[5] }]
-          : [],
+        'str' in item && item.str.trim() !== '' ? [{ str: item.str, x: item.transform[4], y: item.transform[5] }] : [],
       ),
     })
   }

@@ -150,8 +150,14 @@ function cmapTable(glyphs: Glyph[]) {
   const format0Length = 262
   const out = new ByteWriter()
   out.u16(0).u16(2)
-  out.u16(1).u16(0).u32(4 + 2 * 8)
-  out.u16(3).u16(0).u32(4 + 2 * 8 + format0Length)
+  out
+    .u16(1)
+    .u16(0)
+    .u32(4 + 2 * 8)
+  out
+    .u16(3)
+    .u16(0)
+    .u32(4 + 2 * 8 + format0Length)
   out.u16(0).u16(format0Length).u16(0).raw(mac)
   out.raw(format4.toBytes())
   return out.toBytes()
@@ -166,11 +172,20 @@ function nameTable(name: string) {
   ]
   const strings = new ByteWriter()
   const out = new ByteWriter()
-  out.u16(0).u16(records.length).u16(6 + records.length * 12)
+  out
+    .u16(0)
+    .u16(records.length)
+    .u16(6 + records.length * 12)
   for (const [id, value] of records) {
     const offset = strings.length
     for (const char of value) strings.u16(char.charCodeAt(0))
-    out.u16(3).u16(1).u16(0x409).u16(id).u16(value.length * 2).u16(offset)
+    out
+      .u16(3)
+      .u16(1)
+      .u16(0x409)
+      .u16(id)
+      .u16(value.length * 2)
+      .u16(offset)
   }
   return out.raw(strings.toBytes()).toBytes()
 }
@@ -261,7 +276,10 @@ export function buildTrueTypeFont({ name = 'TestSymbols', glyphs }: TrueTypeFont
   os2.raw(new Array(10).fill(0))
   os2.u32(0).u32(0).u32(0).u32(0)
   os2.tag('NONE')
-  os2.u16(0x40).u16(Math.min(0xffff, ...codes)).u16(Math.max(0, ...codes))
+  os2
+    .u16(0x40)
+    .u16(Math.min(0xffff, ...codes))
+    .u16(Math.max(0, ...codes))
   os2.i16(900).i16(-100).i16(0)
   os2.u16(900).u16(100)
   os2.u32(0x80000000).u32(0) // symbol character set
@@ -287,7 +305,12 @@ export function buildTrueTypeFont({ name = 'TestSymbols', glyphs }: TrueTypeFont
   const entrySelector = Math.floor(Math.log2(tables.length))
   const searchRange = 16 * 2 ** entrySelector
   const out = new ByteWriter()
-  out.u32(0x00010000).u16(tables.length).u16(searchRange).u16(entrySelector).u16(tables.length * 16 - searchRange)
+  out
+    .u32(0x00010000)
+    .u16(tables.length)
+    .u16(searchRange)
+    .u16(entrySelector)
+    .u16(tables.length * 16 - searchRange)
   let offset = 12 + tables.length * 16
   for (const [tag, data] of tables) {
     out.tag(tag).u32(checksum(data)).u32(offset).u32(data.length)

@@ -1,23 +1,11 @@
 // Reaches the app through the headless Workspace, in-process.
 import { createWorkspace } from '../../src/workspace/workspace.ts'
 import { readChartsInProcess } from '../../src/workspace/import/readCharts.ts'
-import type {
-  Capability,
-  Driver,
-  ShownChart,
-  ShownImportIssue,
-  ShownStitches,
-  SourcePagePlacement,
-} from './driver.ts'
+import type { Capability, Driver, ShownChart, ShownImportIssue, ShownStitches, SourcePagePlacement } from './driver.ts'
 
 export class WorkspaceDriver implements Driver {
   readonly name = 'Workspace'
-  readonly capabilities: ReadonlySet<Capability> = new Set([
-    'import',
-    'source pages',
-    'import issues',
-    'every chart',
-  ])
+  readonly capabilities: ReadonlySet<Capability> = new Set(['import', 'source pages', 'import issues', 'every chart'])
   private workspace = createWorkspace({ readCharts: readChartsInProcess })
   private chartId?: string
   /** The charts the last import added, in the order it added them. */

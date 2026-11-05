@@ -165,7 +165,9 @@ test('overlap marks shade the stitches a page repeats and point arrows at where 
     const middles = (lines: typeof short, along: 'x' | 'y') =>
       [
         ...new Set(
-          lines.map((line) => (along === 'x' ? ((line.x1 + line.x2) / 2 - left) / cell : (top - (line.y1 + line.y2) / 2) / cell)),
+          lines.map((line) =>
+            along === 'x' ? ((line.x1 + line.x2) / 2 - left) / cell : (top - (line.y1 + line.y2) / 2) / cell,
+          ),
         ),
       ].sort((a, b) => a - b)
     return {
@@ -177,8 +179,14 @@ test('overlap marks shade the stitches a page repeats and point arrows at where 
         }))
         .filter(({ across, down }) => across[0] >= 0 && down[0] >= 0 && across[1] <= columns && down[1] <= rows),
       // An arrow's edge across its base runs along the grid edge it points at.
-      arrowsAtColumnLines: middles(short.filter((line) => line.y1 === line.y2), 'x'),
-      arrowsAtRowLines: middles(short.filter((line) => line.x1 === line.x2), 'y'),
+      arrowsAtColumnLines: middles(
+        short.filter((line) => line.y1 === line.y2),
+        'x',
+      ),
+      arrowsAtRowLines: middles(
+        short.filter((line) => line.x1 === line.x2),
+        'y',
+      ),
     }
   }
   expect(pdf.pages.map(marksOn)).toEqual([
@@ -297,7 +305,10 @@ test('a table page draws a ruled grid with text in its cells, like a chart info 
   expect(page.lines).toHaveLength(3 + 3)
   const left = Math.min(...page.lines.map((line) => line.x1))
   const top = Math.max(...page.lines.map((line) => line.y1))
-  const cellOf = (text: { x: number; y: number }) => [Math.floor((top - text.y) / 16), Math.floor((text.x - left) / 100)]
+  const cellOf = (text: { x: number; y: number }) => [
+    Math.floor((top - text.y) / 16),
+    Math.floor((text.x - left) / 100),
+  ]
   expect(page.text.map((text) => ({ str: text.str, cell: cellOf(text) }))).toEqual([
     { str: 'Title', cell: [0, 0] },
     { str: 'Test Sampler', cell: [0, 1] },

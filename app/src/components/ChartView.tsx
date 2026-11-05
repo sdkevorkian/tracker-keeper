@@ -37,7 +37,7 @@ export function ChartView({ chart }: { chart: Chart }) {
     }
     element.addEventListener('wheel', onWheel, { passive: false })
     return () => element.removeEventListener('wheel', onWheel)
-  },[chart])
+  }, [chart])
 
   useEffect(() => {
     const element = canvas.current!

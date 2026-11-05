@@ -3,14 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, type Page } from '@playwright/test'
-import type {
-  Capability,
-  Driver,
-  ShownChart,
-  ShownImportIssue,
-  ShownStitches,
-  SourcePagePlacement,
-} from './driver.ts'
+import type { Capability, Driver, ShownChart, ShownImportIssue, ShownStitches, SourcePagePlacement } from './driver.ts'
 
 /** The page, with the long tasks seen since the last import began. */
 type WatchedWindow = Window & { longTasks?: number[] }

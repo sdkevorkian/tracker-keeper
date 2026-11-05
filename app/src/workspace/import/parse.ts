@@ -71,8 +71,10 @@ function findGrid(page: PagePrimitives): Grid | undefined {
         const [x0, y0] = from
         const [x1, y1] = command.to
         const [across, down] = [Math.abs(x1 - x0), Math.abs(y1 - y0)]
-        if (down < TOLERANCE && across > TOLERANCE) horizontal.push({ at: y0, from: Math.min(x0, x1), to: Math.max(x0, x1) })
-        if (across < TOLERANCE && down > TOLERANCE) vertical.push({ at: x0, from: Math.min(y0, y1), to: Math.max(y0, y1) })
+        if (down < TOLERANCE && across > TOLERANCE)
+          horizontal.push({ at: y0, from: Math.min(x0, x1), to: Math.max(x0, x1) })
+        if (across < TOLERANCE && down > TOLERANCE)
+          vertical.push({ at: x0, from: Math.min(y0, y1), to: Math.max(y0, y1) })
       }
       from = command.type === 'move' || command.type === 'line' ? command.to : from
     }
@@ -299,7 +301,10 @@ function shadedOverlap(page: PagePrimitives, grid: Grid) {
     if (!path.fill || path.stroke) continue
     const box = boxOfPath(path)
     if (near(box.x0, left) && near(box.y0, bottom) && near(box.y1, top) && box.x1 < right - TOLERANCE) {
-      shaded.columns = Math.max(shaded.columns, grid.xs.filter((x) => x > left + TOLERANCE && x <= box.x1 + TOLERANCE).length)
+      shaded.columns = Math.max(
+        shaded.columns,
+        grid.xs.filter((x) => x > left + TOLERANCE && x <= box.x1 + TOLERANCE).length,
+      )
     }
     if (near(box.y1, top) && near(box.x0, left) && near(box.x1, right) && box.y0 > bottom + TOLERANCE) {
       shaded.rows = Math.max(shaded.rows, grid.ys.filter((y) => y < top - TOLERANCE && y >= box.y0 - TOLERANCE).length)
