@@ -119,7 +119,12 @@ export async function readPdf(bytes: Uint8Array): Promise<{ title?: string; page
         }
         case OPS.showText:
           for (const glyph of args[0]) {
-            if (typeof glyph === 'number') continue
+            if (typeof glyph === 'number') {
+              // A TJ adjustment, in thousandths of the font size, moving the text back.
+              text = [...text]
+              text[4] -= (glyph * fontSize * text[0]) / 1000
+              continue
+            }
             glyphs.push({
               font,
               code: glyph.originalCharCode,

@@ -65,9 +65,14 @@ export class WorkspaceDriver implements Driver {
   }
 
   async legend(): Promise<ShownLegendEntry[]> {
+    // Only what the legend printed is shown.
     return this.chart().legend.map(({ threads, printedCount, color }) => ({
-      threads: threads.map(({ brand, code, name, strands }) => ({ thread: `${brand} ${code}`, name, strands })),
-      printedStitches: printedCount,
+      threads: threads.map(({ brand, code, name, strands }) => ({
+        thread: `${brand} ${code}`,
+        ...(name !== undefined && { name }),
+        ...(strands !== undefined && { strands }),
+      })),
+      ...(printedCount !== undefined && { printedStitches: printedCount }),
       color,
     }))
   }

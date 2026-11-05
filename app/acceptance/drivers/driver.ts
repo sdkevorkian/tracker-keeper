@@ -43,10 +43,10 @@ export type Stitch = [across: number, down: number]
 
 /** One legend entry, as the stitcher reads it. */
 export interface ShownLegendEntry {
-  /** Each thread, such as 'DMC 310', with its name and strands. Several make a blend. */
-  threads: { thread: string; name: string; strands: number }[]
-  /** The stitch count the legend prints. */
-  printedStitches: number
+  /** Each thread, such as 'DMC 310', with its name and strands where the legend prints them. Several make a blend. */
+  threads: { thread: string; name?: string; strands?: number }[]
+  /** The stitch count the legend prints, where it prints one. */
+  printedStitches?: number
   /** The color the app shows the entry in, as `#RRGGBB`, or undefined when it knows none. */
   color?: string
 }

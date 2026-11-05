@@ -46,8 +46,8 @@ export default function legendCases(test: AcceptanceTest) {
       await stitcher.importsChart({
         grid: ['#^', '^^'],
         legendHeadings: [
-          ['Символ', 'Номер', 'Название', 'Нитей', 'Крестиков'],
-          ['Symbol', 'Number', 'Name', 'Strands', 'Stitches'],
+          { symbol: 'Символ', brand: 'Номер', name: 'Название', strands: 'Нитей', count: 'Крестиков' },
+          { symbol: 'Symbol', brand: 'Number', name: 'Name', strands: 'Strands', count: 'Stitches' },
         ],
       })
 
@@ -154,7 +154,7 @@ export default function legendCases(test: AcceptanceTest) {
             ],
           },
         },
-        legendHeadings: [['Symbol', 'Number', 'Name', 'Strands', 'Stitches']],
+        legendHeadings: [{ symbol: 'Symbol', brand: 'Number', name: 'Name', strands: 'Strands', count: 'Stitches' }],
       })
 
       await stitcher.seesNoImportIssues()

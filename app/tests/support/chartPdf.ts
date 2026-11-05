@@ -55,10 +55,39 @@ export interface ChartPage {
   overlapMarks?: boolean
 }
 
+/** What a legend prints in one column of an entry. */
+export type LegendColumn =
+  | 'row number'
+  | 'symbol'
+  | 'swatch'
+  | 'brand'
+  | 'code'
+  | 'name'
+  /** The code and name together, as in '745 - BANANA YELLOW'. */
+  | 'code - name'
+  | 'strands'
+  | 'skeins'
+  | 'count'
+
 export interface LegendPage {
   type: 'legend'
+  /** What each entry prints, left to right. Symbol, swatch, brand, code, name, strands and count by default. */
+  columns?: LegendColumn[]
+  /** Lines of text above the headings and entries, such as 'Floss: DMC'. None by default. */
+  notes?: string[]
+  /** How many entries share a line, side by side. One by default. */
+  entriesPerLine?: number
+  /** Prints the symbols in this font, at the same codes, such as a bold variant of the chart's. The chart's font by default. */
+  symbolFont?: string
+  /**
+   * How words in the legend's text are spaced: with space characters, or by
+   * moving the text along between words, as some PDF software does. Spaces by default.
+   */
+  wordSpacing?: 'spaces' | 'moved'
+  /** Prints each symbol between blank glyphs: code 0 before, and code 0 then a space after, as some chart software does. */
+  paddedSymbols?: boolean
   /** Heading lines above the entries, one string per column, in any script. */
-  headings?: string[][]
+  headings?: Partial<Record<LegendColumn, string>>[]
   entries: LegendEntry[]
 }
 
@@ -118,9 +147,25 @@ const MARGIN_NUMBER_EVERY = 10
 const MARGIN_NUMBER_GAP = 4
 // Helvetica's digits are all this wide, in thousandths of the font size.
 const DIGIT_WIDTH = 556
-const LEGEND_COLUMNS = { symbol: 0, swatch: 16, brand: 44, code: 94, name: 174, strands: 344, count: 394 }
+/** How wide each legend column is, in points. */
+const LEGEND_COLUMN_WIDTHS: Record<LegendColumn, number> = {
+  'row number': 24,
+  symbol: 16,
+  swatch: 28,
+  brand: 50,
+  code: 80,
+  name: 170,
+  'code - name': 170,
+  strands: 50,
+  skeins: 60,
+  count: 50,
+}
+const DEFAULT_LEGEND_COLUMNS: LegendColumn[] = ['symbol', 'swatch', 'brand', 'code', 'name', 'strands', 'count']
+// The space between entries that share a line.
+const LEGEND_ENTRY_GAP = 20
+// How many skeins a stitch count takes, roughly, as legends print it.
+const STITCHES_PER_SKEIN = 2000
 // The columns a heading line's strings head, in order.
-const HEADED_COLUMNS = ['symbol', 'brand', 'name', 'strands', 'count'] as const
 // Headings can be in any script, so they are set in a generated font that maps each code to its character.
 const HEADING_FONT = 'LegendText'
 const HEADING_ADVANCE = 500
@@ -264,6 +309,15 @@ function text(x: number, y: number, value: string) {
   return `BT /${TEXT_FONT} ${TEXT_SIZE} Tf 1 0 0 1 ${x} ${y} Tm ${pdfString(value)} Tj ET`
 }
 
+// How far text moves between words spaced without a space character: a space's width in Helvetica, in thousandths of the font size.
+const MOVED_WORD_GAP = 278
+
+/** Text whose words are spaced by moving along between them, with no space characters. */
+function movedText(x: number, y: number, value: string) {
+  const words = value.split(' ').map(pdfString)
+  return `BT /${TEXT_FONT} ${TEXT_SIZE} Tf 1 0 0 1 ${x} ${y} Tm [${words.join(` -${MOVED_WORD_GAP} `)}] TJ ET`
+}
+
 function symbolFor(name: string, symbols: Record<string, SymbolDescription>) {
   const symbol = symbols[name]
   if (!symbol) throw new Error(`Chart uses "${name}", which is not in symbols`)
@@ -290,11 +344,65 @@ function joined<T>(items: T[], format: (item: T) => string, separator: string) {
 function headingCodes(pages: PageDescription[]) {
   const characters = new Set(
     pages.flatMap((page) =>
-      page.type === 'legend' ? (page.headings ?? []).flat().flatMap((value) => [...value]) : [],
+      page.type === 'legend'
+        ? (page.headings ?? []).flatMap((line) => Object.values(line).flatMap((value) => [...value]))
+        : [],
     ),
   )
   if (characters.size > 0xff - FIRST_HEADING_CODE) throw new Error('Legend headings use too many characters')
   return new Map([...characters].map((character, i) => [character, FIRST_HEADING_CODE + i]))
+}
+
+/** Where each column starts, from the left margin, for a legend that prints these columns. */
+function legendColumnStarts(columns: LegendColumn[]) {
+  const starts = new Map<LegendColumn, number>()
+  let x = 0
+  for (const column of columns) {
+    starts.set(column, x)
+    x += LEGEND_COLUMN_WIDTHS[column]
+  }
+  return starts
+}
+
+/** What one entry prints in one column, as content-stream operators. */
+function legendCell(
+  entry: LegendEntry,
+  column: LegendColumn,
+  columns: LegendColumn[],
+  at: { x: number; y: number; row: number },
+  symbolOps: (x: number, y: number) => string,
+  write: typeof text,
+) {
+  const threads = 'threads' in entry ? entry.threads : [entry]
+  const { x, y } = at
+  const print = (value: string) => [write(x, y, value)]
+  switch (column) {
+    case 'row number':
+      return print(String(at.row))
+    case 'symbol':
+      return [symbolOps(x, y)]
+    case 'swatch':
+      return entry.swatch ? [`${fillColor(entry.swatch)} ${x} ${y} ${SWATCH_SIZE} ${SWATCH_SIZE} re f 0 g`] : []
+    case 'brand':
+      // With a code column too, a blend prints each thread whole here and leaves the code column empty.
+      if (threads.length > 1 && columns.includes('code')) {
+        return print(joined(threads, ({ thread }) => `${thread.brand} ${thread.code}`, ' + '))
+      }
+      return print(joined(threads, ({ thread }) => thread.brand, ' + '))
+    case 'code':
+      if (threads.length > 1 && columns.includes('brand')) return []
+      return print(joined(threads, ({ thread }) => thread.code, ' + '))
+    case 'name':
+      return print(joined(threads, ({ name }) => name, ' + '))
+    case 'code - name':
+      return print(joined(threads, ({ thread, name }) => `${thread.code} - ${name}`, ' + '))
+    case 'strands':
+      return print(joined(threads, ({ strands }) => String(strands), '+'))
+    case 'skeins':
+      return print(`${(entry.count / STITCHES_PER_SKEIN).toFixed(1)} Skeins`)
+    case 'count':
+      return print(String(entry.count))
+  }
 }
 
 function legendContent(
@@ -303,51 +411,43 @@ function legendContent(
   fontKeys: Map<string, string>,
   headingCodeOf: Map<string, number>,
 ) {
-  const column = (name: keyof typeof LEGEND_COLUMNS) => MARGIN + LEGEND_COLUMNS[name]
+  const columns = page.columns ?? DEFAULT_LEGEND_COLUMNS
+  const starts = legendColumnStarts(columns)
+  const column = (name: LegendColumn) => MARGIN + (starts.get(name) ?? 0)
   const rowY = (row: number) => PAGE_HEIGHT - MARGIN - (row + 1) * LEGEND_ROW_HEIGHT
+  const notes = page.notes ?? []
+  const noteOps = notes.map((note, row) => text(MARGIN, rowY(row), note))
+  const write = page.wordSpacing === 'moved' ? movedText : text
+  const perLine = page.entriesPerLine ?? 1
+  const entryWidth = columns.reduce((sum, name) => sum + LEGEND_COLUMN_WIDTHS[name], 0) + LEGEND_ENTRY_GAP
+  // Headings repeat over each entry that shares a line.
+  const slots = Array.from({ length: Math.min(perLine, page.entries.length) }, (_, slot) => slot * entryWidth)
   const headings = page.headings ?? []
-  const headingOps = headings.flatMap((line, row) =>
-    line.map((value, c) => {
-      const codes = [...value].map((character) => headingCodeOf.get(character)!.toString(16).padStart(2, '0')).join('')
-      return `BT /${fontKeys.get(HEADING_FONT)} ${TEXT_SIZE} Tf 1 0 0 1 ${column(HEADED_COLUMNS[c])} ${rowY(row)} Tm <${codes}> Tj ET`
-    }),
+  const headingOps = headings.flatMap((line, i) =>
+    slots.flatMap((left) =>
+      Object.entries(line).map(([name, value]) => {
+        const codes = [...value]
+          .map((character) => headingCodeOf.get(character)!.toString(16).padStart(2, '0'))
+          .join('')
+        const x = left + column(name as LegendColumn)
+        return `BT /${fontKeys.get(HEADING_FONT)} ${TEXT_SIZE} Tf 1 0 0 1 ${x} ${rowY(notes.length + i)} Tm <${codes}> Tj ET`
+      }),
+    ),
   )
   const entryOps = page.entries.flatMap((entry, i) => {
-    const y = rowY(headings.length + i)
+    const y = rowY(notes.length + headings.length + Math.floor(i / perLine))
+    const left = (i % perLine) * entryWidth
     const symbol = symbolFor(entry.symbol, symbols)
-    return [
-      `BT /${fontKeys.get(symbol.font)} ${TEXT_SIZE} Tf 1 0 0 1 ${column('symbol')} ${y} Tm ${hex(symbol.code)} Tj ET`,
-      ...(entry.swatch
-        ? [`${fillColor(entry.swatch)} ${column('swatch')} ${y} ${SWATCH_SIZE} ${SWATCH_SIZE} re f 0 g`]
-        : []),
-      ...('threads' in entry
-        ? [
-            text(
-              column('brand'),
-              y,
-              joined(entry.threads, ({ thread }) => `${thread.brand} ${thread.code}`, ' + '),
-            ),
-            text(
-              column('name'),
-              y,
-              joined(entry.threads, ({ name }) => name, ' + '),
-            ),
-            text(
-              column('strands'),
-              y,
-              joined(entry.threads, ({ strands }) => String(strands), '+'),
-            ),
-          ]
-        : [
-            text(column('brand'), y, entry.thread.brand),
-            text(column('code'), y, entry.thread.code),
-            text(column('name'), y, entry.name),
-            text(column('strands'), y, String(entry.strands)),
-          ]),
-      text(column('count'), y, String(entry.count)),
-    ]
+    const font = page.symbolFont ?? symbol.font
+    const code = symbol.code.toString(16).padStart(2, '0')
+    const codes = page.paddedSymbols ? `<00${code}0020>` : `<${code}>`
+    const symbolOps = (x: number, at: number) =>
+      `BT /${fontKeys.get(font)} ${TEXT_SIZE} Tf 1 0 0 1 ${x} ${at} Tm ${codes} Tj ET`
+    return columns.flatMap((name) =>
+      legendCell(entry, name, columns, { x: left + column(name), y, row: i + 1 }, symbolOps, write),
+    )
   })
-  return [...headingOps, ...entryOps].join('\n')
+  return [...noteOps, ...headingOps, ...entryOps].join('\n')
 }
 
 /** A solid grid of `rows` × `columns` cells from the top left margin. */

@@ -3,6 +3,7 @@
 import { deepStrictEqual, ok } from 'node:assert/strict'
 import {
   buildChartPdf,
+  type LegendColumn,
   type LegendEntry,
   type LegendThread,
   type PageDescription,
@@ -53,8 +54,8 @@ export type ChartSpec =
      * given here that the grid doesn't use still gets a row, after the others.
      */
     legend?: Record<string, LegendRowSpec | 'not printed'>
-    /** Heading lines the legend prints above its entries, one string per column. None by default. */
-    legendHeadings?: string[][]
+    /** Heading lines the legend prints above its entries, each naming the columns it heads. None by default. */
+    legendHeadings?: Partial<Record<LegendColumn, string>>[]
   }
 
 /** Longer than this and a stitcher notices the page freeze. */

@@ -8,8 +8,10 @@ export interface Thread {
   brand: string
   /** For example '310'. */
   code: string
-  name: string
-  strands: number
+  /** Undefined when the legend prints no name. */
+  name?: string
+  /** Undefined when the legend doesn't say. */
+  strands?: number
 }
 
 export interface LegendEntry {
@@ -18,8 +20,8 @@ export interface LegendEntry {
   threads: Thread[]
   /** As `#RRGGBB`, or undefined when no color is known. */
   color?: string
-  /** The stitch count the legend prints. */
-  printedCount: number
+  /** The stitch count the legend prints, or undefined when it prints none. */
+  printedCount?: number
 }
 
 /** Which stitches one page of the source PDF covers, numbered from 1 like a printed chart's margins. Ends are inclusive. */
