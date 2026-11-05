@@ -79,7 +79,12 @@ test('pages that repeat only blank stitches are joined by the stitches they shad
   const { chart } = await importChart({ grid, pageSize: { width: 12, height: 5 }, overlap: 4, overlapMarks: true })
 
   expect({ width: chart.width, height: chart.height }).toEqual({ width: 20, height: 5 })
-  expect(Array.from(chart.cells)).toEqual(grid.join('').split('').map((symbol) => SYMBOLS.indexOf(symbol) + 1))
+  expect(Array.from(chart.cells)).toEqual(
+    grid
+      .join('')
+      .split('')
+      .map((symbol) => SYMBOLS.indexOf(symbol) + 1),
+  )
 })
 
 test('a strip of pages that repeat a few columns, with no margin numbers, gives each stitch once in its place', async () => {

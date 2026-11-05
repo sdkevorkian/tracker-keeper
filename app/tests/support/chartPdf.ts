@@ -366,14 +366,46 @@ function alignmentArrows(part: ChartPart) {
   const columnLines = [...(part.origin.column > 0 ? [0] : []), ...(part.next.column ? [part.next.column] : [])]
   for (const column of columnLines) {
     const x = MARGIN + column * width
-    ops.push(...arrow([x, top], [[x - width / 2, top + height / 2], [x + width / 2, top + height / 2]]))
-    ops.push(...arrow([x, bottom], [[x - width / 2, bottom - height / 2], [x + width / 2, bottom - height / 2]]))
+    ops.push(
+      ...arrow(
+        [x, top],
+        [
+          [x - width / 2, top + height / 2],
+          [x + width / 2, top + height / 2],
+        ],
+      ),
+    )
+    ops.push(
+      ...arrow(
+        [x, bottom],
+        [
+          [x - width / 2, bottom - height / 2],
+          [x + width / 2, bottom - height / 2],
+        ],
+      ),
+    )
   }
   const rowLines = [...(part.origin.row > 0 ? [0] : []), ...(part.next.row ? [part.next.row] : [])]
   for (const row of rowLines) {
     const y = top - row * height
-    ops.push(...arrow([MARGIN, y], [[MARGIN - width / 2, y - height / 2], [MARGIN - width / 2, y + height / 2]]))
-    ops.push(...arrow([right, y], [[right + width / 2, y - height / 2], [right + width / 2, y + height / 2]]))
+    ops.push(
+      ...arrow(
+        [MARGIN, y],
+        [
+          [MARGIN - width / 2, y - height / 2],
+          [MARGIN - width / 2, y + height / 2],
+        ],
+      ),
+    )
+    ops.push(
+      ...arrow(
+        [right, y],
+        [
+          [right + width / 2, y - height / 2],
+          [right + width / 2, y + height / 2],
+        ],
+      ),
+    )
   }
   return ops
 }
@@ -462,7 +494,9 @@ export function buildChartPdf(description: ChartPdfDescription): Uint8Array {
     fontKeys.set(name, key)
     fontRefs.push(`/${key} ${embedFont(pdf, name, font)} 0 R`)
   })
-  fontRefs.push(`/${TEXT_FONT} ${pdf.add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>')} 0 R`)
+  fontRefs.push(
+    `/${TEXT_FONT} ${pdf.add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>')} 0 R`,
+  )
   const resources = `<< /Font << ${fontRefs.join(' ')} >> >>`
 
   const contentsFor = (page: PageDescription) => {

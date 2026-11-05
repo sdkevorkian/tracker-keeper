@@ -25,7 +25,10 @@ test('a PDF over 200 MB is refused before it is read', async () => {
 
 test('a PDF with more than 500 pages is refused', async () => {
   const workspace = createWorkspace({ readCharts: readChartsInProcess })
-  const pages: PageDescription[] = Array.from({ length: 501 }, (_, page) => ({ type: 'text', lines: [`Page ${page + 1}`] }))
+  const pages: PageDescription[] = Array.from({ length: 501 }, (_, page) => ({
+    type: 'text',
+    lines: [`Page ${page + 1}`],
+  }))
 
   await expect(workspace.importPdf(buildChartPdf({ fonts: {}, symbols: {}, pages }))).rejects.toThrow(
     'This PDF has too many pages to import (over 500)',

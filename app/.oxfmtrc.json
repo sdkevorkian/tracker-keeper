@@ -1,0 +1,7 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 120,
+  "semi": false,
+  "singleQuote": true,
+  "ignorePatterns": ["package-lock.json", "public/", "src/workspace/threads/dmc-floss.json"]
+}
