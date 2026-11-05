@@ -45,7 +45,9 @@ export interface Size {
 /** A problem the import found that suggests the chart doesn't match its source PDF. */
 export type ImportIssue =
   /** The chart's size differs from the size the source PDF prints, often from pages joined wrongly. */
-  { kind: 'size mismatch'; printed: Size; parsed: Size }
+  | { kind: 'size mismatch'; printed: Size; parsed: Size }
+  /** The chart's cells are filled in but hold no symbols, as when a PDF prints it only as color blocks. */
+  | { kind: 'no symbols' }
 
 export interface Chart {
   id: string

@@ -58,7 +58,7 @@ function App({ workspace }: { workspace: Workspace }) {
           </button>
         </div>
         <p>Import, verify and track cross stitch charts in the browser.</p>
-        <button type="button" className="button" onClick={() => fileInput.current?.click()}>
+        <button type="button" className="button button-primary" onClick={() => fileInput.current?.click()}>
           Import
         </button>
         <input

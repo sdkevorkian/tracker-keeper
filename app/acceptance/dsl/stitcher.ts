@@ -5,9 +5,10 @@ import {
   buildChartPdf,
   type LegendEntry,
   type PageDescription,
+  type PdfStyle,
   type SymbolDescription,
 } from '../../tests/support/chartPdf.ts'
-import type { Driver, ShownImportIssue, ShownStitches, SourcePagePlacement } from '../drivers/driver.ts'
+import type { Driver, ShownChart, ShownImportIssue, ShownStitches, SourcePagePlacement } from '../drivers/driver.ts'
 
 export type ChartSpec = (
   /** One string per row, one symbol per cell, '.' for a blank cell. Symbols are '#' and '^'. */
@@ -23,6 +24,8 @@ export type ChartSpec = (
   overlap?: number
   /** The size an info page prints for the chart, in stitches. No info page by default. */
   printedSize?: { width: number; height: number }
+  /** Each PDF style the source PDF prints the whole chart in, in order. Symbols on white by default. */
+  printedIn?: PdfStyle[]
 }
 
 /** Longer than this and a stitcher notices the page freeze. */
@@ -56,6 +59,9 @@ const THREADS: Record<string, Pick<LegendEntry, 'thread' | 'name'>> = {
   '^': { thread: { brand: 'DMC', code: '321' }, name: 'Red' },
 }
 
+/** The color a PDF style with color fills each symbol's cells with. */
+const COLORS: Record<string, string> = { '#': '#000000', '^': '#C72B3B' }
+
 function pageSizeOf({ printedOn, overlap = 0 }: ChartSpec, grid: string[]) {
   if (!printedOn) return undefined
   // Every page but the first repeats `overlap` stitches from the page before.
@@ -81,30 +87,38 @@ function infoPage({ printedSize }: ChartSpec): PageDescription[] {
   ]
 }
 
-function chartPdf(chart: ChartSpec) {
+/** A design's chart pages, then its legend, then its info page if it has one. */
+function designPages(chart: ChartSpec): PageDescription[] {
   const grid = gridOf(chart)
   const counts = new Map<string, number>()
   for (const symbol of grid.join('')) {
     if (symbol !== '.') counts.set(symbol, (counts.get(symbol) ?? 0) + 1)
   }
+  return [
+    ...(chart.printedIn ?? ['symbols']).map((style): PageDescription => ({
+      type: 'chart',
+      style,
+      colors: COLORS,
+      cell: { width: 10, height: 10 },
+      grid,
+      pageSize: pageSizeOf(chart, grid),
+      overlap: chart.overlap,
+      marginNumbers: chart.marginNumbers,
+    })),
+    {
+      type: 'legend',
+      entries: [...counts].map(([symbol, count]) => ({ symbol, ...THREADS[symbol], strands: 2, count })),
+    },
+    ...infoPage(chart),
+  ]
+}
+
+/** A source PDF holding each design in turn. */
+function chartPdf(...designs: ChartSpec[]) {
   return buildChartPdf({
     fonts: { StitchSymbols: { glyphs: { 0x41: 'square', 0x42: 'triangle' } } },
     symbols: SYMBOLS,
-    pages: [
-      {
-        type: 'chart',
-        cell: { width: 10, height: 10 },
-        grid,
-        pageSize: pageSizeOf(chart, grid),
-        overlap: chart.overlap,
-        marginNumbers: chart.marginNumbers,
-      },
-      {
-        type: 'legend',
-        entries: [...counts].map(([symbol, count]) => ({ symbol, ...THREADS[symbol], strands: 2, count })),
-      },
-      ...infoPage(chart),
-    ],
+    pages: designs.flatMap(designPages),
   })
 }
 
@@ -123,8 +137,21 @@ export class Stitcher {
     await this.driver.importPdf(chartPdf(chart))
   }
 
+  /** Imports one source PDF that holds several separate designs, one after another. */
+  async importsPdfOfDesigns(designs: ChartSpec[]) {
+    await this.driver.importPdf(chartPdf(...designs))
+  }
+
   async seesChart(expected: { width: number; height: number }) {
     deepStrictEqual(await this.driver.shownChartSize(), expected)
+  }
+
+  /** Every chart the last import gave, in the order the source PDF prints them. */
+  async seesCharts(expected: ShownChart[]) {
+    const charts = await this.driver.importedCharts()
+    // Legends are compared only where the case gives one.
+    const shown = charts.map(({ legend, ...size }, i) => (expected[i]?.legend ? { ...size, legend } : size))
+    deepStrictEqual(shown, expected)
   }
 
   async seesStitches(expected: ShownStitches) {
