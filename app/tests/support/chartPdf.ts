@@ -57,8 +57,13 @@ export interface ChartPage {
   pageSize?: { width: number; height: number }
   /** How many rows and columns neighbouring pages repeat. None by default. */
   overlap?: number
-  /** Prints every 10th row and column number of the whole chart in the margins, as chart software does. */
-  marginNumbers?: boolean
+  /**
+   * Prints every 10th row and column number of the whole chart in the margins, as chart software does.
+   * 'padded' pads shorter numbers with leading spaces to three characters so they line up, as some chart software does.
+   */
+  marginNumbers?: boolean | 'padded'
+  /** Draws a backstitch straight along the middle of the first row and of the first column, through the cells. None by default. */
+  backstitches?: boolean
   /** Shades the rows and columns a page repeats, and points arrows at where pages align, as chart software does. */
   overlapMarks?: boolean
 }
@@ -154,6 +159,9 @@ const CELL_OUTLINE_WIDTH = 0.25
 const SHADE = 0.85
 const MARGIN_NUMBER_EVERY = 10
 const MARGIN_NUMBER_GAP = 4
+// Padded margin numbers are this many characters long.
+const PADDED_NUMBER_LENGTH = 3
+const BACKSTITCH_WIDTH = 1
 // Helvetica's digits are all this wide, in thousandths of the font size.
 const DIGIT_WIDTH = 556
 /** How wide each legend column is, in points. */
@@ -671,21 +679,35 @@ function marginNumbers(part: ChartPart) {
   const { width, height } = part.cell
   const top = PAGE_HEIGHT - MARGIN
   const textWidth = (value: string) => (value.length * DIGIT_WIDTH * TEXT_SIZE) / 1000
+  const label = (value: number) =>
+    part.marginNumbers === 'padded' ? String(value).padStart(PADDED_NUMBER_LENGTH, ' ') : String(value)
   const ops: string[] = []
   const columns = Math.max(...part.grid.map((row) => row.length))
   for (let column = 0; column < columns; column++) {
-    const number = String(part.origin.column + column + 1)
+    const number = label(part.origin.column + column + 1)
     if (Number(number) % MARGIN_NUMBER_EVERY) continue
     const middle = MARGIN + (column + 0.5) * width
     ops.push(text(middle - textWidth(number) / 2, top + MARGIN_NUMBER_GAP, number))
   }
   part.grid.forEach((_row, row) => {
-    const number = String(part.origin.row + row + 1)
+    const number = label(part.origin.row + row + 1)
     if (Number(number) % MARGIN_NUMBER_EVERY) return
     const baseline = top - (row + 1) * height + (height - TEXT_SIZE) / 2 + 2
     ops.push(text(MARGIN - MARGIN_NUMBER_GAP - textWidth(number), baseline, number))
   })
   return ops
+}
+
+/** A backstitch along the middle of the first row and of the first column, from one side of the grid to the other. */
+function backstitches(part: ChartPart) {
+  const { width, height } = part.cell
+  const top = PAGE_HEIGHT - MARGIN
+  const [right, bottom] = [
+    MARGIN + Math.max(...part.grid.map((row) => row.length)) * width,
+    top - part.grid.length * height,
+  ]
+  const [x, y] = [MARGIN + width / 2, top - height / 2]
+  return [`${BACKSTITCH_WIDTH} w ${MARGIN} ${y} m ${right} ${y} l S`, `${x} ${top} m ${x} ${bottom} l S`]
 }
 
 // A logo's frame sits this far below the grid and is this tall, in points.
@@ -751,6 +773,7 @@ function chartContent(page: ChartPart, symbols: Record<string, SymbolDescription
       thick: page.thickLines && { from: page.origin, as: page.thickLines },
     }),
   ]
+  if (page.backstitches) ops.push(...backstitches(page))
   if (page.marginNumbers) ops.push(...marginNumbers(page))
   if (page.overlapMarks) ops.push(...alignmentArrows(page))
   if (page.logo) ops.push(...logo(page))

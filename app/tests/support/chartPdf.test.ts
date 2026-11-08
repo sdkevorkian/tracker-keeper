@@ -427,6 +427,48 @@ test('a chart page can thicken every 10th line by drawing it twice, half a point
   expect(lines.every(({ width }) => width === 0.5)).toBe(true)
 })
 
+test('margin numbers can be padded with leading spaces to three characters, so they line up', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { a: { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'chart',
+          cell: { width: 5, height: 5 },
+          grid: Array.from({ length: 20 }, () => 'a'.repeat(20)),
+          marginNumbers: 'padded',
+        },
+      ],
+    }),
+  )
+
+  // pdf.js trims the spaces from its text runs, so the glyphs drawn show them.
+  const printed = pdf.pages[0].glyphs.filter(({ font }) => font !== 'StitchSquares')
+  expect(printed.map(({ code }) => String.fromCharCode(code)).join('')).toBe(' 10 20 10 20')
+})
+
+test('a chart page can draw backstitches straight along the middle of its first row and column', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [{ type: 'chart', cell: { width: 10, height: 10 }, grid: ['#.#', '.#.'], backstitches: true }],
+    }),
+  )
+
+  const lines = pdf.pages[0].lines
+  const left = Math.min(...lines.map((line) => Math.min(line.x1, line.x2)))
+  const top = Math.max(...lines.map((line) => Math.max(line.y1, line.y2)))
+  const backstitches = lines
+    .filter(({ width }) => width === 1)
+    .map(({ x1, y1, x2, y2 }) => ({ x1: x1 - left, y1: top - y1, x2: x2 - left, y2: top - y2 }))
+  expect(backstitches).toEqual([
+    { x1: 0, y1: 5, x2: 30, y2: 5 },
+    { x1: 5, y1: 0, x2: 5, y2: 20 },
+  ])
+})
+
 test("a chart page can print a logo below its grid: a frame as wide as the grid, a mark and the designer's name", async () => {
   const pdf = await readPdf(
     buildChartPdf({

@@ -108,24 +108,47 @@ function within(segments: Segment[], edges: number[]) {
 const SPACING_SLACK = 0.25
 
 /**
- * The longest run of neighbouring positions spaced evenly, as a grid's lines
- * are. Lines that break the spacing, such as a logo's frame, aren't the
- * grid's. Of runs as long, the most closely spaced is, since cells are smaller
- * than anything else drawn on a chart page.
+ * The positions from `start` on that sit one `gap` after another. Lines
+ * between them, such as backstitches through the middles of cells, are
+ * skipped; the run ends where no line sits a gap on.
+ */
+function runFrom(positions: number[], start: number, gap: number) {
+  const run = [positions[start]]
+  let i = start + 1
+  while (i < positions.length) {
+    // A line drawn twice to thicken it sits a little off its place, so gaps may differ by part of a cell.
+    const expected = run.at(-1)! + gap
+    const slack = gap * SPACING_SLACK
+    while (i < positions.length && positions[i] < expected - slack) i++
+    let closest: number | undefined
+    while (i < positions.length && positions[i] <= expected + slack) {
+      if (closest === undefined || Math.abs(positions[i] - expected) < Math.abs(closest - expected))
+        closest = positions[i]
+      i++
+    }
+    if (closest === undefined) break
+    run.push(closest)
+  }
+  return run
+}
+
+/**
+ * The longest run of positions spaced evenly, as a grid's lines are. Lines
+ * that break the spacing, such as a logo's frame, aren't the grid's. Of runs
+ * as long, the most closely spaced is, since cells are smaller than anything
+ * else drawn on a chart page.
  */
 function evenlySpaced(positions: number[]) {
   let best = positions.slice(0, 1)
   let bestGap = Infinity
   for (let start = 0; start < positions.length - 1; start++) {
-    const gap = positions[start + 1] - positions[start]
-    let end = start + 1
-    // A line drawn twice to thicken it sits a little off its place, so gaps may differ by part of a cell.
-    while (end + 1 < positions.length && Math.abs(positions[end + 1] - positions[end] - gap) <= gap * SPACING_SLACK)
-      end++
-    const length = end - start + 1
-    if (length > best.length || (length === best.length && gap < bestGap)) {
-      best = positions.slice(start, end + 1)
-      bestGap = gap
+    for (let next = start + 1; next < positions.length; next++) {
+      const gap = positions[next] - positions[start]
+      const run = runFrom(positions, start, gap)
+      if (run.length > best.length || (run.length === best.length && gap < bestGap)) {
+        best = run
+        bestGap = gap
+      }
     }
   }
   return best
@@ -176,7 +199,10 @@ function band(edges: number[], value: number, descending = false) {
 /** Numbers printed in a line of text, each with the box around its digits. */
 function numbersIn(glyphs: Glyph[]) {
   return linesOf(glyphs).flatMap((line) =>
-    wordsOf(line).flatMap((word) => {
+    wordsOf(line).flatMap((spaced) => {
+      // Some chart software pads shorter numbers with spaces so they line up.
+      const word = spaced.filter((glyph) => glyph.unicode.trim())
+      if (word.length === 0) return []
       const value = word.map((glyph) => glyph.unicode).join('')
       if (!/^\d+$/.test(value)) return []
       const box = {

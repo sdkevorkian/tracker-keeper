@@ -100,6 +100,20 @@ test.each(['wide', 'doubled'] as const)(
   },
 )
 
+test('backstitches running straight through the middles of cells are not read as grid lines', async () => {
+  // Bigger than GRID: in a grid of 2 rows, a line through the middle of one spaces as evenly as the rows do.
+  const grid = Array.from({ length: 11 }, (_, row) => (row % 2 ? '#^.' : '.^#').repeat(4))
+
+  const [chart] = await importChart({ grid, backstitches: true })
+
+  expect({ width: chart.width, height: chart.height, importIssues: chart.importIssues }).toEqual({
+    width: 12,
+    height: 11,
+    importIssues: [],
+  })
+  expect(chart.cells.slice(0, 24)).toEqual([...'021021021021120120120120'].map(Number))
+})
+
 test("a designer's logo below the grid is not read as part of the chart", async () => {
   expect(await importChart({ logo: true })).toEqual(READ)
 })
