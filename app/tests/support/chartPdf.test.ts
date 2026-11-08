@@ -41,6 +41,33 @@ test('cells need not be square, and a dot leaves a cell blank', async () => {
   ])
 })
 
+test('a chart page can print a character in each blank cell, such as a space from its symbol font', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x20: 'blank', 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'chart',
+          cell: { width: 10, height: 10 },
+          grid: ['#.', '.#'],
+          blankCells: { font: 'StitchSquares', code: 0x20 },
+        },
+      ],
+    }),
+  )
+
+  const [first, ...rest] = pdf.pages[0].glyphs
+  expect(
+    [first, ...rest].map(({ code, unicode, x, y }) => ({ code, unicode, x: x - first.x, y: first.y - y })),
+  ).toEqual([
+    { code: 0x41, unicode: '■', x: 0, y: 0 },
+    { code: 0x20, unicode: ' ', x: 10, y: 0 },
+    { code: 0x20, unicode: ' ', x: 0, y: 10 },
+    { code: 0x41, unicode: '■', x: 10, y: 10 },
+  ])
+})
+
 /** A page's chart symbols read back as grid rows, one letter per character code from 0x41. */
 function gridOn(page: { glyphs: { font: string; code: number; x: number; y: number }[] }, cell: number) {
   const symbols = page.glyphs.filter((glyph) => glyph.font === 'StitchSquares')
@@ -281,6 +308,200 @@ test('a chart page draws a solid grid line along every row and column edge', asy
     ]),
   )
   expect(relative).toHaveLength(7)
+})
+
+test('a chart page can draw its grid dotted inside a solid border', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [{ type: 'chart', cell: { width: 10, height: 10 }, grid: ['#.', '.#'], gridLines: 'dotted' }],
+    }),
+  )
+
+  const lines = pdf.pages[0].lines
+  const left = Math.min(...lines.flatMap((line) => [line.x1, line.x2]))
+  const top = Math.max(...lines.flatMap((line) => [line.y1, line.y2]))
+  const relative = lines.map(({ x1, y1, x2, y2 }) => ({ x1: x1 - left, y1: top - y1, x2: x2 - left, y2: top - y2 }))
+  const long = relative.filter(({ x1, y1, x2, y2 }) => Math.hypot(x2 - x1, y2 - y1) > 1)
+  expect(long).toEqual(
+    expect.arrayContaining([
+      ...[0, 20].map((y) => ({ x1: 0, y1: y, x2: 20, y2: y })),
+      ...[0, 20].map((x) => ({ x1: x, y1: 0, x2: x, y2: 20 })),
+    ]),
+  )
+  expect(long).toHaveLength(4)
+  const dots = relative.filter((line) => !long.includes(line))
+  const across = dots.filter(({ y1, y2 }) => y1 === 10 && y2 === 10)
+  const down = dots.filter(({ x1, x2 }) => x1 === 10 && x2 === 10)
+  expect(across.length + down.length).toBe(dots.length)
+  // A dot every point along each inner line, each shorter than half a point.
+  expect([across.length, down.length]).toEqual([20, 20])
+  expect(dots.every(({ x1, y1, x2, y2 }) => Math.hypot(x2 - x1, y2 - y1) < 0.5)).toBe(true)
+})
+
+test('a chart page can draw its grid lines as thin filled rectangles instead of strokes', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [{ type: 'chart', cell: { width: 8, height: 12 }, grid: ['#.#', '.#.'], gridLines: 'rectangles' }],
+    }),
+  )
+
+  const page = pdf.pages[0]
+  expect(page.lines).toEqual([])
+  const left = Math.min(...page.fills.map(({ x0, x1 }) => (x0 + x1) / 2))
+  const top = Math.max(...page.fills.map(({ y0, y1 }) => (y0 + y1) / 2))
+  // Each rectangle as the line along its middle, and how thick it is.
+  const relative = page.fills.map(({ x0, y0, x1, y1 }) =>
+    x1 - x0 > y1 - y0
+      ? { x1: x0 - left, y1: top - (y0 + y1) / 2, x2: x1 - left, y2: top - (y0 + y1) / 2, thickness: y1 - y0 }
+      : { x1: (x0 + x1) / 2 - left, y1: top - y1, x2: (x0 + x1) / 2 - left, y2: top - y0, thickness: x1 - x0 },
+  )
+  expect(relative).toEqual(
+    expect.arrayContaining([
+      ...[0, 12, 24].map((y) => ({ x1: 0, y1: y, x2: 24, y2: y, thickness: 0.5 })),
+      ...[0, 8, 16, 24].map((x) => ({ x1: x, y1: 0, x2: x, y2: 24, thickness: 0.5 })),
+    ]),
+  )
+  expect(relative).toHaveLength(7)
+})
+
+test('a chart page can draw every 10th row and column line of the whole chart thicker', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'chart',
+          cell: { width: 5, height: 5 },
+          grid: Array.from({ length: 12 }, () => '#'.repeat(16)),
+          pageSize: { width: 8, height: 12 },
+          thickLines: 'wide',
+        },
+      ],
+    }),
+  )
+
+  // The second page starts at column 9, so its thick column line is its 2nd, at the chart's 10th column edge.
+  const thick = pdf.pages.map((page) => {
+    const left = Math.min(...page.lines.map((line) => Math.min(line.x1, line.x2)))
+    const top = Math.max(...page.lines.map((line) => Math.max(line.y1, line.y2)))
+    return page.lines
+      .filter(({ width }) => width > 0.5)
+      .map(({ x1, y1, x2 }) => (x1 === x2 ? { column: (x1 - left) / 5 } : { row: (top - y1) / 5 }))
+  })
+  expect(thick).toEqual([
+    [{ row: 0 }, { row: 10 }, { column: 0 }],
+    [{ row: 0 }, { row: 10 }, { column: 2 }],
+  ])
+  expect(pdf.pages[0].lines.filter(({ width }) => width === 0.5)).toHaveLength(13 + 9 - 3)
+})
+
+test('a chart page can thicken every 10th line by drawing it twice, half a point apart', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'chart',
+          cell: { width: 5, height: 5 },
+          grid: Array.from({ length: 12 }, () => '#'.repeat(12)),
+          thickLines: 'doubled',
+        },
+      ],
+    }),
+  )
+
+  const lines = pdf.pages[0].lines
+  const left = Math.min(...lines.map((line) => Math.min(line.x1, line.x2)))
+  const top = Math.max(...lines.map((line) => Math.max(line.y1, line.y2)))
+  const columns = lines.filter(({ x1, x2 }) => x1 === x2).map(({ x1 }) => x1 - left)
+  const rows = lines.filter(({ y1, y2 }) => y1 === y2).map(({ y1 }) => top - y1)
+  const edges = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
+  expect(columns).toEqual([0, 0.5, ...edges.slice(1, 10), 50, 50.5, ...edges.slice(11)])
+  expect(rows).toEqual([0, 0.5, ...edges.slice(1, 10), 50, 50.5, ...edges.slice(11)])
+  expect(lines.every(({ width }) => width === 0.5)).toBe(true)
+})
+
+test('margin numbers can be padded with leading spaces to three characters, so they line up', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { a: { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'chart',
+          cell: { width: 5, height: 5 },
+          grid: Array.from({ length: 20 }, () => 'a'.repeat(20)),
+          marginNumbers: 'padded',
+        },
+      ],
+    }),
+  )
+
+  // pdf.js trims the spaces from its text runs, so the glyphs drawn show them.
+  const printed = pdf.pages[0].glyphs.filter(({ font }) => font !== 'StitchSquares')
+  expect(printed.map(({ code }) => String.fromCharCode(code)).join('')).toBe(' 10 20 10 20')
+})
+
+test('a chart page can draw backstitches straight along the middle of its first row and column', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [{ type: 'chart', cell: { width: 10, height: 10 }, grid: ['#.#', '.#.'], backstitches: true }],
+    }),
+  )
+
+  const lines = pdf.pages[0].lines
+  const left = Math.min(...lines.map((line) => Math.min(line.x1, line.x2)))
+  const top = Math.max(...lines.map((line) => Math.max(line.y1, line.y2)))
+  const backstitches = lines
+    .filter(({ width }) => width === 1)
+    .map(({ x1, y1, x2, y2 }) => ({ x1: x1 - left, y1: top - y1, x2: x2 - left, y2: top - y2 }))
+  expect(backstitches).toEqual([
+    { x1: 0, y1: 5, x2: 30, y2: 5 },
+    { x1: 5, y1: 0, x2: 5, y2: 20 },
+  ])
+})
+
+test("a chart page can print a logo below its grid: a frame as wide as the grid, a mark and the designer's name", async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [{ type: 'chart', cell: { width: 10, height: 10 }, grid: ['#.#', '.#.'], logo: true }],
+    }),
+  )
+
+  const page = pdf.pages[0]
+  const left = Math.min(...page.lines.map((line) => Math.min(line.x1, line.x2)))
+  const top = Math.max(...page.lines.map((line) => Math.max(line.y1, line.y2)))
+  const relative = page.lines.map(({ x1, y1, x2, y2 }) => ({
+    x1: x1 - left,
+    y1: top - y1,
+    x2: x2 - left,
+    y2: top - y2,
+  }))
+  // The grid is 30 by 20; the frame sits 15 below it and is 25 tall.
+  const frame = relative.filter(({ y1, y2 }) => Math.max(y1, y2) > 20)
+  expect(frame).toEqual(
+    expect.arrayContaining([
+      { x1: 0, y1: 35, x2: 30, y2: 35 },
+      { x1: 30, y1: 35, x2: 30, y2: 60 },
+      { x1: 30, y1: 60, x2: 0, y2: 60 },
+      { x1: 0, y1: 60, x2: 0, y2: 35 },
+    ]),
+  )
+  expect(frame).toHaveLength(4)
+  const name = page.text.find(({ str }) => str === 'Test Studio')!
+  expect(top - name.y).toBeGreaterThan(35)
+  expect(top - name.y).toBeLessThan(60)
+  expect(page.fills.filter(({ y1 }) => top - y1 > 35)).toHaveLength(1)
 })
 
 test('a table page draws a ruled grid with text in its cells, like a chart info page', async () => {

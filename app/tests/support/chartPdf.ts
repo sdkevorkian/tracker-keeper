@@ -41,6 +41,14 @@ export interface ChartPage {
   colors?: Record<string, string>
   /** Outlines each colored cell, on top of the grid lines, as some chart software does. */
   outlineCells?: boolean
+  /** Prints this character in each blank cell, such as a space from the symbol font, as some chart software does. Nothing by default. */
+  blankCells?: SymbolDescription
+  /** How the grid lines are drawn. Solid by default. */
+  gridLines?: GridLines
+  /** Draws every 10th row and column line of the whole chart thicker, as chart software does. Not by default. */
+  thickLines?: ThickLines
+  /** Prints the designer's logo below the grid: a frame as wide as the grid, holding a drawn mark and a name. */
+  logo?: boolean
   /** Cell size in points. Cells need not be square. */
   cell: { width: number; height: number }
   /** One string per row, one symbol name per cell, '.' for a blank cell. */
@@ -49,8 +57,13 @@ export interface ChartPage {
   pageSize?: { width: number; height: number }
   /** How many rows and columns neighbouring pages repeat. None by default. */
   overlap?: number
-  /** Prints every 10th row and column number of the whole chart in the margins, as chart software does. */
-  marginNumbers?: boolean
+  /**
+   * Prints every 10th row and column number of the whole chart in the margins, as chart software does.
+   * 'padded' pads shorter numbers with leading spaces to three characters so they line up, as some chart software does.
+   */
+  marginNumbers?: boolean | 'padded'
+  /** Draws a backstitch straight along the middle of the first row and of the first column, through the cells. None by default. */
+  backstitches?: boolean
   /** Shades the rows and columns a page repeats, and points arrows at where pages align, as chart software does. */
   overlapMarks?: boolean
 }
@@ -140,11 +153,15 @@ const TEXT_SIZE = 10
 const LINE_HEIGHT = 14
 const LEGEND_ROW_HEIGHT = 16
 const GRID_LINE_WIDTH = 0.5
+const THICK_LINE_WIDTH = 1
 const CELL_OUTLINE_WIDTH = 0.25
 // The grey that overlap shading is filled with.
 const SHADE = 0.85
 const MARGIN_NUMBER_EVERY = 10
 const MARGIN_NUMBER_GAP = 4
+// Padded margin numbers are this many characters long.
+const PADDED_NUMBER_LENGTH = 3
+const BACKSTITCH_WIDTH = 1
 // Helvetica's digits are all this wide, in thousandths of the font size.
 const DIGIT_WIDTH = 556
 /** How wide each legend column is, in points. */
@@ -176,6 +193,7 @@ const FIRST_HEADING_CODE = 0x21
 const SHAPE_UNICODE: Record<Shape, string> = {
   square: '■',
   triangle: '▲',
+  blank: ' ',
 }
 
 type Point = [x: number, y: number]
@@ -450,19 +468,85 @@ function legendContent(
   return [...noteOps, ...headingOps, ...entryOps].join('\n')
 }
 
-/** A solid grid of `rows` × `columns` cells from the top left margin. */
-function gridLines(cell: { width: number; height: number }, rows: number, columns: number) {
+/** How a chart page draws its grid lines. */
+export type GridLines = 'solid' | 'dotted' | 'rectangles'
+
+// A dotted line has a dot this long, in points, every point along it.
+const DOT_LENGTH = 0.25
+
+/** One line from `from` to `to`, `width` thick: a stroke, dots along it, or a thin filled rectangle. */
+function lineOps(from: Point, to: Point, style: GridLines, width: number) {
+  const length = Math.hypot(to[0] - from[0], to[1] - from[1])
+  if (style === 'rectangles') {
+    const [x0, y0] = [Math.min(from[0], to[0]), Math.min(from[1], to[1])]
+    return from[1] === to[1]
+      ? `${x0} ${y0 - width / 2} ${length} ${width} re f`
+      : `${x0 - width / 2} ${y0} ${width} ${length} re f`
+  }
+  if (style === 'solid') return `${width} w ${from[0]} ${from[1]} m ${to[0]} ${to[1]} l S`
+  const at = (distance: number) => from.map((value, i) => value + ((to[i] - value) * distance) / length).join(' ')
+  const dots = Array.from({ length: Math.floor(length) }, (_, i) => {
+    const start = i + (1 - DOT_LENGTH) / 2
+    return `${at(start)} m ${at(start + DOT_LENGTH)} l`
+  })
+  return `${width} w ${dots.join(' ')} S`
+}
+
+/** How a chart page thickens every 10th line: one wider stroke, or the line drawn twice, half a point apart. */
+export type ThickLines = 'wide' | 'doubled'
+
+// How far apart a doubled line's two strokes are, in points.
+const DOUBLED_LINE_GAP = 0.5
+
+interface GridOptions {
+  style?: GridLines
+  /** Thickens every 10th line of the whole chart, counting from this page's top left cell. */
+  thick?: { from: { row: number; column: number }; as: ThickLines }
+}
+
+/** A grid of `rows` × `columns` cells from the top left margin. A dotted grid keeps a solid border. */
+function gridLines(
+  cell: { width: number; height: number },
+  rows: number,
+  columns: number,
+  { style = 'solid', thick }: GridOptions = {},
+) {
   const top = PAGE_HEIGHT - MARGIN
   const right = MARGIN + columns * cell.width
   const bottom = top - rows * cell.height
-  const ops = [`${GRID_LINE_WIDTH} w`]
+  const styleOf = (inner: boolean) => (style === 'dotted' && !inner ? 'solid' : style)
+  const isThick = (line: number | undefined) => line !== undefined && line % MARGIN_NUMBER_EVERY === 0
+  const ops: string[] = []
+  /** A line, thickened when it is every 10th; `shift` moves a point down or right by `by` points. */
+  const draw = (
+    from: Point,
+    to: Point,
+    inner: boolean,
+    thickened: boolean,
+    shift: (point: Point, by: number) => Point,
+  ) => {
+    const lineStyle = styleOf(inner)
+    if (!thickened || !thick) return ops.push(lineOps(from, to, lineStyle, GRID_LINE_WIDTH))
+    if (thick.as === 'wide') return ops.push(lineOps(from, to, lineStyle, THICK_LINE_WIDTH))
+    ops.push(lineOps(from, to, lineStyle, GRID_LINE_WIDTH))
+    ops.push(lineOps(shift(from, DOUBLED_LINE_GAP), shift(to, DOUBLED_LINE_GAP), lineStyle, GRID_LINE_WIDTH))
+  }
   for (let row = 0; row <= rows; row++) {
     const y = top - row * cell.height
-    ops.push(`${MARGIN} ${y} m ${right} ${y} l S`)
+    draw([MARGIN, y], [right, y], row > 0 && row < rows, isThick(thick && thick.from.row + row), ([x, at], by) => [
+      x,
+      at - by,
+    ])
   }
   for (let column = 0; column <= columns; column++) {
     const x = MARGIN + column * cell.width
-    ops.push(`${x} ${top} m ${x} ${bottom} l S`)
+    draw(
+      [x, top],
+      [x, bottom],
+      column > 0 && column < columns,
+      isThick(thick && thick.from.column + column),
+      ([at, y], by) => [at + by, y],
+    )
   }
   return ops
 }
@@ -595,21 +679,61 @@ function marginNumbers(part: ChartPart) {
   const { width, height } = part.cell
   const top = PAGE_HEIGHT - MARGIN
   const textWidth = (value: string) => (value.length * DIGIT_WIDTH * TEXT_SIZE) / 1000
+  const label = (value: number) =>
+    part.marginNumbers === 'padded' ? String(value).padStart(PADDED_NUMBER_LENGTH, ' ') : String(value)
   const ops: string[] = []
   const columns = Math.max(...part.grid.map((row) => row.length))
   for (let column = 0; column < columns; column++) {
-    const number = String(part.origin.column + column + 1)
+    const number = label(part.origin.column + column + 1)
     if (Number(number) % MARGIN_NUMBER_EVERY) continue
     const middle = MARGIN + (column + 0.5) * width
     ops.push(text(middle - textWidth(number) / 2, top + MARGIN_NUMBER_GAP, number))
   }
   part.grid.forEach((_row, row) => {
-    const number = String(part.origin.row + row + 1)
+    const number = label(part.origin.row + row + 1)
     if (Number(number) % MARGIN_NUMBER_EVERY) return
     const baseline = top - (row + 1) * height + (height - TEXT_SIZE) / 2 + 2
     ops.push(text(MARGIN - MARGIN_NUMBER_GAP - textWidth(number), baseline, number))
   })
   return ops
+}
+
+/** A backstitch along the middle of the first row and of the first column, from one side of the grid to the other. */
+function backstitches(part: ChartPart) {
+  const { width, height } = part.cell
+  const top = PAGE_HEIGHT - MARGIN
+  const [right, bottom] = [
+    MARGIN + Math.max(...part.grid.map((row) => row.length)) * width,
+    top - part.grid.length * height,
+  ]
+  const [x, y] = [MARGIN + width / 2, top - height / 2]
+  return [`${BACKSTITCH_WIDTH} w ${MARGIN} ${y} m ${right} ${y} l S`, `${x} ${top} m ${x} ${bottom} l S`]
+}
+
+// A logo's frame sits this far below the grid and is this tall, in points.
+const LOGO_GAP = 15
+const LOGO_HEIGHT = 25
+const LOGO_MARK_SIZE = 10
+const LOGO_NAME = 'Test Studio'
+
+/** A designer's logo below the grid: a frame as wide as the grid, holding a diamond mark and a name. */
+function logo(part: ChartPart) {
+  const width = Math.max(...part.grid.map((row) => row.length)) * part.cell.width
+  const top = PAGE_HEIGHT - MARGIN - part.grid.length * part.cell.height - LOGO_GAP
+  const [left, right, bottom] = [MARGIN, MARGIN + width, top - LOGO_HEIGHT]
+  const middle = (top + bottom) / 2
+  const half = LOGO_MARK_SIZE / 2
+  const mark = [
+    [left + 4, middle],
+    [left + 4 + half, middle + half],
+    [left + 4 + LOGO_MARK_SIZE, middle],
+    [left + 4 + half, middle - half],
+  ].map(([x, y]) => `${x} ${y}`)
+  return [
+    `${GRID_LINE_WIDTH} w ${left} ${top} m ${right} ${top} l ${right} ${bottom} l ${left} ${bottom} l ${left} ${top} l S`,
+    `${mark[0]} m ${mark[1]} l ${mark[2]} l ${mark[3]} l h f`,
+    text(left + 8 + LOGO_MARK_SIZE, middle - TEXT_SIZE / 2 + 2, LOGO_NAME),
+  ]
 }
 
 /** The fill operator for a `#RRGGBB` color. */
@@ -644,15 +768,20 @@ function chartContent(page: ChartPart, symbols: Record<string, SymbolDescription
   const ops = [
     ...(style === 'symbols' ? [] : cellColors(page)),
     ...(page.overlapMarks ? overlapShading(page) : []),
-    ...gridLines(page.cell, page.grid.length, Math.max(...page.grid.map((row) => row.length))),
+    ...gridLines(page.cell, page.grid.length, Math.max(...page.grid.map((row) => row.length)), {
+      style: page.gridLines,
+      thick: page.thickLines && { from: page.origin, as: page.thickLines },
+    }),
   ]
+  if (page.backstitches) ops.push(...backstitches(page))
   if (page.marginNumbers) ops.push(...marginNumbers(page))
   if (page.overlapMarks) ops.push(...alignmentArrows(page))
+  if (page.logo) ops.push(...logo(page))
   if (style === 'color blocks') return ops.join('\n')
   page.grid.forEach((row, rowIndex) => {
     ;[...row].forEach((name, column) => {
-      if (name === BLANK) return
-      const symbol = symbolFor(name, symbols)
+      if (name === BLANK && !page.blankCells) return
+      const symbol = name === BLANK ? page.blankCells! : symbolFor(name, symbols)
       const x = MARGIN + column * width + (width - size) / 2
       const y = top - (rowIndex + 1) * height + (height - size) / 2
       ops.push(`BT /${fontKeys.get(symbol.font)} ${size} Tf 1 0 0 1 ${x} ${y} Tm ${hex(symbol.code)} Tj ET`)

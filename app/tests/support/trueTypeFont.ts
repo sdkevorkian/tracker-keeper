@@ -1,7 +1,8 @@
 // Writes small TrueType symbol fonts for synthetic chart PDFs, so tests never
 // need a committed font file. Each glyph is a polygon on a 1000-unit em.
 
-export type Shape = 'square' | 'triangle'
+/** A blank shape has no outline, as a space has none. */
+export type Shape = 'square' | 'triangle' | 'blank'
 
 export interface TrueTypeFontDescription {
   /** PostScript name written to the font's name table. */
@@ -32,6 +33,7 @@ const SHAPES: Record<Shape, Contour[]> = {
       [900, 100],
     ],
   ],
+  blank: [],
 }
 
 class ByteWriter {

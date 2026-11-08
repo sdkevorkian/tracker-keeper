@@ -24,6 +24,8 @@ export interface PdfLine {
   y1: number
   x2: number
   y2: number
+  /** The line width it is stroked with. */
+  width: number
 }
 
 export interface PdfPage {
@@ -77,11 +79,15 @@ export async function readPdf(bytes: Uint8Array): Promise<{ title?: string; page
     let fontEmbedded = false
     let fontSize = 0
     let fillColor = '#000000'
+    let lineWidth = 1
     let line: Matrix = [1, 0, 0, 1, 0, 0]
     let text: Matrix = line
     operators.fnArray.forEach((fn, i) => {
       const args = operators.argsArray[i]
       switch (fn) {
+        case OPS.setLineWidth:
+          lineWidth = args[0]
+          break
         case OPS.setFillRGBColor:
           fillColor = args[0]
           break
@@ -112,7 +118,7 @@ export async function readPdf(bytes: Uint8Array): Promise<{ title?: string; page
               throw new Error(`readPdf reads only straight lines, not path operation ${op}`)
             }
             const [nextX, nextY] = [path[at++], path[at++]]
-            if (op === LINE_TO) lines.push({ x1: x, y1: y, x2: nextX, y2: nextY })
+            if (op === LINE_TO) lines.push({ x1: x, y1: y, x2: nextX, y2: nextY, width: lineWidth })
             ;[x, y] = [nextX, nextY]
           }
           break
