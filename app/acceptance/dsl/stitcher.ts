@@ -3,12 +3,31 @@
 import { deepStrictEqual, ok } from 'node:assert/strict'
 import {
   buildChartPdf,
+  type LegendColumn,
   type LegendEntry,
+  type LegendThread,
   type PageDescription,
   type PdfStyle,
   type SymbolDescription,
 } from '../../tests/support/chartPdf.ts'
-import type { Driver, ShownChart, ShownImportIssue, ShownStitches, SourcePagePlacement } from '../drivers/driver.ts'
+import type {
+  Driver,
+  ShownChart,
+  ShownImportIssue,
+  ShownLegendEntry,
+  ShownStitches,
+  SourcePagePlacement,
+} from '../drivers/driver.ts'
+
+/** How the legend prints one symbol's row, where a case cares. */
+export interface LegendRowSpec {
+  /** Each thread, such as 'DMC 310', and its strands. Several make a blend. */
+  threads?: { thread: string; strands: number }[]
+  /** The color of a swatch printed on the row, as `#RRGGBB`. None by default. */
+  swatch?: string
+  /** The stitch count the row prints. The symbol's true count by default. */
+  printedCount?: number
+}
 
 export type ChartSpec =
   /** One string per row, one symbol per cell, '.' for a blank cell. Symbols are '#' and '^'. */
@@ -25,8 +44,18 @@ export type ChartSpec =
     overlap?: number
     /** The size an info page prints for the chart, in stitches. No info page by default. */
     printedSize?: { width: number; height: number }
+    /** The title an info page prints for the chart. No info page by default. */
+    printedTitle?: string
     /** Each PDF style the source PDF prints the whole chart in, in order. Symbols on white by default. */
     printedIn?: PdfStyle[]
+    /**
+     * How the legend prints a symbol's row, where it differs from the default:
+     * one thread in 2 strands and the symbol's true stitch count. A symbol
+     * given here that the grid doesn't use still gets a row, after the others.
+     */
+    legend?: Record<string, LegendRowSpec | 'not printed'>
+    /** Heading lines the legend prints above its entries, each naming the columns it heads. None by default. */
+    legendHeadings?: Partial<Record<LegendColumn, string>>[]
   }
 
 /** Longer than this and a stitcher notices the page freeze. */
@@ -55,9 +84,31 @@ const SYMBOLS: Record<string, SymbolDescription> = {
   '^': { font: 'StitchSymbols', code: 0x42 },
 }
 
-const THREADS: Record<string, Pick<LegendEntry, 'thread' | 'name'>> = {
-  '#': { thread: { brand: 'DMC', code: '310' }, name: 'Black' },
-  '^': { thread: { brand: 'DMC', code: '321' }, name: 'Red' },
+/** Each symbol's thread, when the case doesn't say. */
+const THREADS: Record<string, string> = { '#': 'DMC 310', '^': 'DMC 321' }
+
+/** The name the legend prints for each thread. */
+const THREAD_NAMES: Record<string, string> = {
+  'DMC 310': 'Black',
+  'DMC 321': 'Red',
+  'DMC 3371': 'Black Brown',
+  'Anchor 403': 'Black',
+  'Cosmo 2500': 'Charcoal',
+}
+
+/** A legend row's thread, from a thread such as 'DMC 310'. The code is the last word. */
+function legendThread(thread: string, strands: number): LegendThread {
+  const [code, ...brand] = thread.split(' ').reverse()
+  return { thread: { brand: brand.reverse().join(' '), code }, name: THREAD_NAMES[thread] ?? 'Thread', strands }
+}
+
+function legendEntry(symbol: string, stitches: number, spec: LegendRowSpec = {}): LegendEntry {
+  const count = spec.printedCount ?? stitches
+  const threads = (spec.threads ?? [{ thread: THREADS[symbol], strands: 2 }]).map(({ thread, strands }) =>
+    legendThread(thread, strands),
+  )
+  const row = { symbol, count, swatch: spec.swatch }
+  return threads.length === 1 ? { ...row, ...threads[0] } : { ...row, threads }
 }
 
 /** The color a PDF style with color fills each symbol's cells with. */
@@ -73,16 +124,16 @@ function pageSizeOf({ printedOn, overlap = 0 }: ChartSpec, grid: string[]) {
   }
 }
 
-/** An info page like the one chart software prints, giving the chart's size. */
-function infoPage({ printedSize }: ChartSpec): PageDescription[] {
-  if (!printedSize) return []
+/** An info page like the one chart software prints, giving the chart's title and size. */
+function infoPage({ printedSize, printedTitle }: ChartSpec): PageDescription[] {
+  if (!printedSize && !printedTitle) return []
   return [
     {
       type: 'table',
       cell: { width: 100, height: 16 },
       rows: [
-        ['Title', 'Test Sampler'],
-        ['Grid Size', `${printedSize.width}W x ${printedSize.height}H`],
+        ['Title', printedTitle ?? 'Test Sampler'],
+        ...(printedSize ? [['Grid Size', `${printedSize.width}W x ${printedSize.height}H`]] : []),
       ],
     },
   ]
@@ -94,6 +145,9 @@ function designPages(chart: ChartSpec): PageDescription[] {
   const counts = new Map<string, number>()
   for (const symbol of grid.join('')) {
     if (symbol !== '.') counts.set(symbol, (counts.get(symbol) ?? 0) + 1)
+  }
+  for (const symbol of Object.keys(chart.legend ?? {})) {
+    if (!counts.has(symbol)) counts.set(symbol, 0)
   }
   return [
     ...(chart.printedIn ?? ['symbols']).map((style): PageDescription => ({
@@ -108,7 +162,11 @@ function designPages(chart: ChartSpec): PageDescription[] {
     })),
     {
       type: 'legend',
-      entries: [...counts].map(([symbol, count]) => ({ symbol, ...THREADS[symbol], strands: 2, count })),
+      headings: chart.legendHeadings,
+      entries: [...counts].flatMap(([symbol, count]) => {
+        const spec = chart.legend?.[symbol]
+        return spec === 'not printed' ? [] : [legendEntry(symbol, count, spec)]
+      }),
     },
     ...infoPage(chart),
   ]
@@ -157,6 +215,19 @@ export class Stitcher {
 
   async seesStitches(expected: ShownStitches) {
     deepStrictEqual(await this.driver.shownStitches(), expected)
+  }
+
+  async seesChartTitled(expected: string) {
+    deepStrictEqual(await this.driver.chartTitle(), expected)
+  }
+
+  /** The legend of the chart the stitcher is looking at, row by row. Colors are compared only where the case gives one. */
+  async seesLegend(expected: ShownLegendEntry[]) {
+    const legend = await this.driver.legend()
+    const shown = legend.map(({ color, ...entry }, i) =>
+      expected[i] && 'color' in expected[i] ? { ...entry, color } : entry,
+    )
+    deepStrictEqual(shown, expected)
   }
 
   async seesSourcePagesPlaced(expected: SourcePagePlacement[]) {

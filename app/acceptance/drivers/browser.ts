@@ -68,6 +68,14 @@ export class BrowserDriver implements Driver {
     throw new Error("The app doesn't list every imported chart yet")
   }
 
+  async chartTitle(): Promise<never> {
+    throw new Error('The app does not show the chart title yet')
+  }
+
+  async legend(): Promise<never> {
+    throw new Error('The app does not show the legend yet')
+  }
+
   async importIssues(): Promise<ShownImportIssue[]> {
     throw new Error("The app doesn't show import issues yet")
   }

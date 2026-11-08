@@ -2,9 +2,11 @@
 // symbols, joined into one grid, and a legend page.
 import type { ImportIssue, LegendEntry, Size, SourcePage, SymbolKey } from '../chart.ts'
 import { bundledColor } from '../threads/colors.ts'
-import type { Box, Glyph, PagePrimitives, Path } from './extract.ts'
+import type { Box, Glyph, PagePrimitives, Path, PdfPrimitives } from './extract.ts'
 
 export interface ParsedChart {
+  /** The chart's title, where the PDF prints one. */
+  title?: string
   width: number
   height: number
   cells: Uint16Array
@@ -18,6 +20,8 @@ export interface ParsedChart {
 const TOLERANCE = 0.5
 /** A gap wider than this many font heights between glyphs starts a new legend column. */
 const COLUMN_GAP = 0.6
+/** A gap wider than this many font heights between glyphs, with no space character, is a space between words. */
+const WORD_GAP = 0.15
 
 interface Grid {
   /** Column edges, left to right. */
@@ -28,6 +32,11 @@ interface Grid {
 
 function symbolKey(symbol: SymbolKey) {
   return `${symbol.font}\u0000${symbol.code}`
+}
+
+function symbolOf(key: string): SymbolKey {
+  const [font, code] = key.split('\u0000')
+  return { font, code: Number(code) }
 }
 
 function distinct(values: number[]) {
@@ -195,32 +204,204 @@ function wordsOf(glyphs: Glyph[]) {
   return words
 }
 
-/** Splits a line of text glyphs into columns at wide gaps. */
-function columnsOf(glyphs: Glyph[]) {
-  return wordsOf(glyphs)
-    .map((column) =>
-      column
-        .map((glyph) => glyph.unicode)
-        .join('')
-        .trim(),
-    )
-    .filter(Boolean)
+/**
+ * The text of a run of glyphs. Some PDFs space words by moving the text
+ * along instead of printing a space, so a gap between glyphs is a space too.
+ */
+function textOf(glyphs: Glyph[]) {
+  return glyphs
+    .map((glyph, i) => {
+      const previous = glyphs[i - 1]
+      if (!previous || previous.unicode === ' ' || glyph.unicode === ' ') return glyph.unicode
+      const gap = glyph.box.x0 - previous.box.x1
+      return gap > WORD_GAP * (glyph.box.y1 - glyph.box.y0) ? ` ${glyph.unicode}` : glyph.unicode
+    })
+    .join('')
+    .trim()
 }
 
-function readLegendRow(line: Glyph[], symbols: Set<string>): LegendEntry | undefined {
+/** Splits a line of text glyphs into columns at wide gaps. */
+function columnsOf(glyphs: Glyph[]) {
+  return wordsOf(glyphs).map(textOf).filter(Boolean)
+}
+
+/** The color of a swatch printed on a legend row: a filled shape beside its symbol, no taller than the symbol. */
+function swatchColor(symbol: Glyph, fills: Path[]) {
+  const height = symbol.box.y1 - symbol.box.y0
+  const swatch = fills.find((path) => {
+    const box = boxOfPath(path)
+    const { y } = centre(box)
+    return y >= symbol.box.y0 && y <= symbol.box.y1 && box.y1 - box.y0 <= height && box.x0 >= symbol.box.x1
+  })
+  return swatch?.fillColor
+}
+
+/**
+ * A thread as a legend prints it, such as 'DMC 310' or 'DMC BLANC': the brand,
+ * then the code as the last word. A bare code takes the brand the PDF names
+ * for the whole legend, if it names one.
+ */
+function readThread(text: string, brand?: string) {
+  const words = text.trim().split(/\s+/)
+  if (words.length === 1) return brand ? { brand, code: words[0] } : undefined
+  return { brand: words.slice(0, -1).join(' '), code: words.at(-1)! }
+}
+
+/** How a PDF names the one brand its legend uses, as in 'Floss: DMC' or 'PALETTE: DMC'. */
+const LEGEND_BRAND = /\b(?:floss|palette)\s*:\s*(\p{L}[\p{L}\d-]*)/iu
+
+/** The brand the PDF names for its whole legend, if any. */
+function legendBrandIn(pages: PagePrimitives[]) {
+  for (const page of pages) {
+    for (const line of linesOf(page.glyphs)) {
+      const brand = LEGEND_BRAND.exec(columnsOf(line).join(' '))
+      if (brand) return brand[1]
+    }
+  }
+  return undefined
+}
+
+/** Amounts a legend prints that the chart doesn't need, such as '0.8 Skeins' or a thread length of '3.30'. */
+const AMOUNT = /^\d+[.,]\d+|skein/i
+/** Strands or a stitch count: a whole number, or strands per thread of a blend such as '1+1'. */
+const NUMBER = /^\d+(\+\d+)*$/
+/** More strands than this in one needle is a stitch count, not strands. */
+const MOST_STRANDS = 6
+
+/** A run of text on a page, and the box around it. */
+interface Word {
+  text: string
+  box: Box
+}
+
+/** A line's words, split at wide gaps. */
+function textWordsOf(glyphs: Glyph[]): Word[] {
+  return wordsOf(glyphs).flatMap((word) => {
+    const text = textOf(word)
+    if (!text) return []
+    const box = { x0: word[0].box.x0, y0: word[0].box.y0, x1: word.at(-1)!.box.x1, y1: word[0].box.y1 }
+    return [{ text, box }]
+  })
+}
+
+/**
+ * The chart symbol font that a legend glyph's font stands for: the same font,
+ * or another style of it, as when a legend prints 'X' and the chart 'X,Bold'.
+ */
+function chartFontFor(font: string, chartFonts: Set<string>) {
+  if (chartFonts.has(font)) return font
+  const family = font.split(',')[0]
+  return [...chartFonts].find((chartFont) => chartFont.split(',')[0] === family)
+}
+
+/** What a legend page says about the rows on it. */
+interface LegendPageContext {
+  /** The chart symbol font a glyph's font stands for, or undefined when the glyph isn't a symbol. */
+  symbolFontFor: (font: string) => string | undefined
+  /** Filled shapes on the page, which may be swatches. */
+  fills: Path[]
+  /** The brand the PDF names for the whole legend, for rows that print only a code. */
+  brand?: string
+  /** Words on lines with no symbol, such as column headings. */
+  headings: Word[]
+}
+
+/** What a column heading says the numbers under it are, if it says. */
+function headedAs(number: Word, headings: Word[]) {
+  const above = headings.filter(({ box }) => box.y0 > number.box.y1 && box.x0 < number.box.x1 && box.x1 > number.box.x0)
+  const heading = above.map(({ text }) => text).join(' ')
+  if (/strand|нит/i.test(heading)) return 'strands'
+  if (/stitch|крест/i.test(heading)) return 'count'
+  return undefined
+}
+
+/**
+ * Where a legend row's thread ends: its first column, or its first two when
+ * the first is a brand on its own, as in 'DMC' then '310'.
+ */
+function threadColumns(columns: string[]) {
+  return /^\p{L}+$/u.test(columns[0]) && columns.length > 1 ? 2 : 1
+}
+
+/** A thread printed with its name after a dash, as in '745 - BANANA YELLOW', split into the two. */
+function splitCodeName(text: string): [thread: string, name?: string] {
+  const parts = /^(.+?)\s+-\s+(.+)$/.exec(text)
+  return parts ? [parts[1], parts[2]] : [text]
+}
+
+/**
+ * A row's strands and printed count, from the whole numbers it prints after
+ * its thread. A lone number is whatever its column heading says, or else
+ * strands when it's small enough to be.
+ */
+function strandsAndCount(numbers: Word[], headings: Word[]): { strands?: string; count?: string } | undefined {
+  if (numbers.length === 2) return { strands: numbers[0].text, count: numbers[1].text }
+  if (numbers.length > 2) return undefined
+  const [number] = numbers
+  if (number === undefined) return {}
+  const kind =
+    headedAs(number, headings) ??
+    (number.text.includes('+') || Number(number.text) <= MOST_STRANDS ? 'strands' : 'count')
+  return kind === 'strands' ? { strands: number.text } : { count: number.text }
+}
+
+/**
+ * Splits a line of a legend page into entries, each starting at a symbol, as
+ * when a legend prints several entries side by side. Anything before the
+ * first symbol isn't part of an entry.
+ */
+function legendEntriesIn(line: Glyph[], symbolFontFor: LegendPageContext['symbolFontFor']) {
+  const entries: Glyph[][] = []
+  for (const glyph of line) {
+    // Some legends pad each symbol with blank glyphs from its font: code 0, or a space.
+    const blank = glyph.code === 0 || glyph.code === 0x20
+    if (symbolFontFor(glyph.font) && blank) continue
+    if (symbolFontFor(glyph.font)) entries.push([glyph])
+    else entries.at(-1)?.push(glyph)
+  }
+  return entries
+}
+
+/**
+ * A legend row: the symbol, then its thread or threads, and any of a name,
+ * strands and printed stitch count. Columns are read by what they hold, since
+ * legends print different columns in different orders. A blend joins its
+ * threads, names and strands with +.
+ */
+function readLegendRow(line: Glyph[], page: LegendPageContext): LegendEntry | undefined {
   const [first, ...rest] = line
-  if (!symbols.has(symbolKey(first))) return undefined
-  const columns = columnsOf(rest)
-  if (columns.length < 5) return undefined
-  const [brand, code, ...more] = columns
-  const count = Number(more.pop())
-  const strands = Number(more.pop())
-  if (!Number.isInteger(count) || !Number.isInteger(strands)) return undefined
+  const font = page.symbolFontFor(first.font)
+  if (!font) return undefined
+  const words = textWordsOf(rest).filter(({ text }) => !AMOUNT.test(text))
+  const columns = words.map(({ text }) => text)
+  if (columns.length === 0) return undefined
+  const split = threadColumns(columns)
+  // Some legends print the code and name together, as in '745 - BANANA YELLOW'.
+  const [threadText, codeName] = splitCodeName(columns.slice(0, split).join(' '))
+  const threads = threadText.split('+').map((text) => readThread(text, page.brand))
+  const after = words.slice(split)
+  const numbers = strandsAndCount(
+    after.filter(({ text }) => NUMBER.test(text)),
+    page.headings,
+  )
+  const name = [
+    ...(codeName ? [codeName] : []),
+    ...after.filter(({ text }) => !NUMBER.test(text)).map(({ text }) => text),
+  ].join(' ')
+  if (!numbers || !threads.every((thread) => thread !== undefined)) return undefined
+  const names = name ? name.split(' + ') : undefined
+  const strands = numbers.strands?.split('+').map(Number)
+  if (names && names.length !== threads.length) return undefined
+  if (strands && strands.length !== threads.length) return undefined
   return {
-    symbol: { font: first.font, code: first.code },
-    threads: [{ brand, code, name: more.join(' '), strands }],
-    color: bundledColor({ brand, code }),
-    printedCount: count,
+    symbol: { font, code: first.code },
+    threads: threads.map((thread, i) => ({
+      ...thread,
+      ...(names && { name: names[i].trim() }),
+      ...(strands && { strands: strands[i] }),
+    })),
+    color: (threads.length === 1 ? bundledColor(threads[0]) : undefined) ?? swatchColor(first, page.fills),
+    ...(numbers.count !== undefined && { printedCount: Number(numbers.count) }),
   }
 }
 
@@ -276,6 +457,29 @@ function printedSizeIn(pages: PagePrimitives[]): Size | undefined {
     }
   }
   return undefined
+}
+
+/** A line labelled 'Title', as on an info page, in a table or after a colon. */
+const PRINTED_TITLE = /^title\s*:?\s+(.+)$/i
+
+/** The chart's title printed on the PDF's other pages, if any. */
+function printedTitleIn(pages: PagePrimitives[]) {
+  for (const page of pages) {
+    for (const line of linesOf(page.glyphs)) {
+      const title = PRINTED_TITLE.exec(columnsOf(line).join(' '))
+      if (title) return title[1].trim()
+    }
+  }
+  return undefined
+}
+
+/** Titles PDF software writes to the metadata when the author gave none. */
+const PLACEHOLDER_TITLES = /^(document|untitled)?$/i
+
+/** The metadata's title, unless it is a placeholder. */
+function realTitle(title: string | undefined) {
+  const trimmed = title?.trim()
+  return trimmed && !PLACEHOLDER_TITLES.test(trimmed) ? trimmed : undefined
 }
 
 function boxOfPath(path: Path): Box {
@@ -503,7 +707,16 @@ function designsOf(printings: JoinedChart[]): Design[] {
   }))
 }
 
-export function parseCharts(pages: PagePrimitives[]): ParsedChart[] {
+/** The indexes of the cells holding `value`. */
+function cellsOf(cells: Uint16Array, value: number) {
+  const found: number[] = []
+  cells.forEach((cell, i) => {
+    if (cell === value) found.push(i)
+  })
+  return found
+}
+
+export function parseCharts({ title: metadataTitle, pages }: PdfPrimitives): ParsedChart[] {
   const runs: ChartPage[][] = []
   const others: { page: number; primitives: PagePrimitives }[] = []
   let run: ChartPage[] | undefined
@@ -535,8 +748,28 @@ export function parseCharts(pages: PagePrimitives[]): ParsedChart[] {
       .filter(({ page }) => page < until && (i === 0 || page > firstPage))
       .map(({ primitives }) => primitives)
     const { width, height, placed } = chart
-    const symbols = new Set(placed.map(({ key }) => key))
-    const legend = own.flatMap((page) => linesOf(page.glyphs).flatMap((line) => readLegendRow(line, symbols) ?? []))
+    // Legend rows start with a symbol in a font the chart's symbols use, even when the chart doesn't use that symbol.
+    const symbolFonts = new Set(placed.map(({ key }) => symbolOf(key).font))
+    const symbolFontFor = (font: string) => chartFontFor(font, symbolFonts)
+    const brand = legendBrandIn(own)
+    const rows = own.flatMap((page) => {
+      const lines = linesOf(page.glyphs)
+      const context: LegendPageContext = {
+        symbolFontFor,
+        fills: page.paths.filter((path) => path.fill && !path.stroke),
+        brand,
+        headings: lines
+          .filter((line) => !line.some((glyph) => symbolFontFor(glyph.font)))
+          .flatMap((line) => textWordsOf(line)),
+      }
+      return lines.flatMap((line) =>
+        legendEntriesIn(line, symbolFontFor).flatMap((entry) => readLegendRow(entry, context) ?? []),
+      )
+    })
+    // A PDF may print the same legend on more than one page; a symbol's first entry is its own.
+    const legend = rows.filter(
+      (row, n) => rows.findIndex((other) => symbolKey(other.symbol) === symbolKey(row.symbol)) === n,
+    )
     const entryOf = new Map(legend.map((entry, n) => [symbolKey(entry.symbol), n + 1]))
     const printed = printedSizeIn(own)
     const cells = new Uint16Array(width * height)
@@ -551,6 +784,41 @@ export function parseCharts(pages: PagePrimitives[]): ParsedChart[] {
       importIssues.push({ kind: 'size mismatch', printed, parsed: { width, height } })
     }
     if (placed.length === 0 && chart.pages.some((page) => page.filled)) importIssues.push({ kind: 'no symbols' })
-    return { width, height, cells, legend, sourcePages, importIssues }
+    legend.forEach(({ printedCount }, index) => {
+      const entry = index + 1
+      const entryCells = cellsOf(cells, entry)
+      if (entryCells.length === 0) {
+        importIssues.push({ kind: 'legend entry with no stitches', entry })
+      } else if (printedCount !== undefined && entryCells.length !== printedCount) {
+        importIssues.push({
+          kind: 'legend count mismatch',
+          entry,
+          printed: printedCount,
+          parsed: entryCells.length,
+          cells: entryCells,
+        })
+      }
+    })
+    // Pages that repeat stitches place them more than once, so cells are gathered in sets.
+    const unlisted = new Map<string, Set<number>>()
+    for (const { cell, key } of placed) {
+      if (!entryOf.has(key)) unlisted.set(key, (unlisted.get(key) ?? new Set()).add(cell))
+    }
+    for (const [key, unlistedCells] of unlisted) {
+      importIssues.push({
+        kind: 'symbol not in legend',
+        symbol: symbolOf(key),
+        cells: [...unlistedCells].sort((a, b) => a - b),
+      })
+    }
+    return {
+      title: printedTitleIn(own) ?? realTitle(metadataTitle),
+      width,
+      height,
+      cells,
+      legend,
+      sourcePages,
+      importIssues,
+    }
   })
 }

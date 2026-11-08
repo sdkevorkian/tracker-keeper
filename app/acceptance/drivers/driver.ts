@@ -10,6 +10,10 @@ export type Capability =
   | 'import issues'
   /** Reading every chart the last import gave, not only the one on screen. */
   | 'every chart'
+  /** Reading the legend entries of the chart on screen. */
+  | 'legend'
+  /** Reading the title of the chart on screen. */
+  | 'chart title'
 
 /** Stitches the stitcher can see, numbered from 1 like a printed chart's margins. Ends are inclusive. */
 export interface ShownStitches {
@@ -34,11 +38,30 @@ export interface ShownChart extends Size {
   legend?: { thread: string; stitches: number }[]
 }
 
+/** One stitch: its column and row, numbered from 1 like a printed chart's margins. */
+export type Stitch = [across: number, down: number]
+
+/** One legend entry, as the stitcher reads it. */
+export interface ShownLegendEntry {
+  /** Each thread, such as 'DMC 310', with its name and strands where the legend prints them. Several make a blend. */
+  threads: { thread: string; name?: string; strands?: number }[]
+  /** The stitch count the legend prints, where it prints one. */
+  printedStitches?: number
+  /** The color the app shows the entry in, as `#RRGGBB`, or undefined when it knows none. */
+  color?: string
+}
+
 /** A problem the import found that suggests the chart doesn't match its source PDF. */
 export type ShownImportIssue =
   | { kind: 'size mismatch'; printed: Size; parsed: Size }
   /** The chart's cells are filled in but hold no symbols, as when a PDF prints it only as color blocks. */
   | { kind: 'no symbols' }
+  /** A legend entry, named by its thread such as 'DMC 310', prints a different count from the stitches it has. */
+  | { kind: 'legend count mismatch'; thread: string; printed: number; parsed: number; stitches: Stitch[] }
+  /** A symbol printed in the chart that the legend doesn't list. */
+  | { kind: 'symbol not in legend'; stitches: Stitch[] }
+  /** A legend entry, named by its thread, that no stitch in the chart uses. */
+  | { kind: 'legend entry with no stitches'; thread: string }
 
 export interface Driver {
   readonly name: string
@@ -53,6 +76,10 @@ export interface Driver {
   sourcePagePlacements(): Promise<SourcePagePlacement[]>
   /** Every chart the last import gave, in the order the source PDF prints them. */
   importedCharts(): Promise<ShownChart[]>
+  /** The legend of the chart the stitcher is looking at, row by row. */
+  legend(): Promise<ShownLegendEntry[]>
+  /** The title of the chart the stitcher is looking at, or undefined when it has none. */
+  chartTitle(): Promise<string | undefined>
   /** The import issues of the chart the stitcher is looking at. */
   importIssues(): Promise<ShownImportIssue[]>
   zoomIn(): Promise<void>

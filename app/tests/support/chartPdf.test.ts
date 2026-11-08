@@ -373,6 +373,309 @@ test('a legend page prints each legend entry as its symbol followed by thread, n
   ])
 })
 
+/** Each line of a page's text, top to bottom, as its strings left to right. */
+function textLines(page: { text: { str: string; x: number; y: number }[] }) {
+  return [...new Set(page.text.map(({ y }) => y))]
+    .sort((a, b) => b - a)
+    .map((y) =>
+      page.text
+        .filter((text) => text.y === y)
+        .sort((a, b) => a.x - b.x)
+        .map((text) => text.str),
+    )
+}
+
+test('a legend prints only the columns it is given, in that order, such as skeins and no name', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'legend',
+          columns: ['symbol', 'brand', 'code', 'strands', 'skeins', 'count'],
+          entries: [{ symbol: '#', thread: { brand: 'DMC', code: '13' }, name: 'Spearmint', strands: 2, count: 1013 }],
+        },
+      ],
+    }),
+  )
+
+  expect(textLines(pdf.pages[0])).toEqual([['■', 'DMC', '13', '2', '0.5 Skeins', '1013']])
+})
+
+test('a legend can print lines of notes above its entries', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'legend',
+          notes: ['Size: 2 x 1 stitches', 'Floss: DMC'],
+          columns: ['symbol', 'code', 'strands'],
+          entries: [{ symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 2 }],
+        },
+      ],
+    }),
+  )
+
+  expect(textLines(pdf.pages[0])).toEqual([['Size: 2 x 1 stitches'], ['Floss: DMC'], ['■', '310', '2']])
+})
+
+test("a legend can number its rows and print each thread's code and name together", async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'legend',
+          columns: ['row number', 'symbol', 'code - name', 'count'],
+          entries: [
+            { symbol: '#', thread: { brand: 'DMC', code: '745' }, name: 'BANANA YELLOW', strands: 2, count: 748 },
+          ],
+        },
+      ],
+    }),
+  )
+
+  expect(textLines(pdf.pages[0])).toEqual([['1', '■', '745 - BANANA YELLOW', '748']])
+})
+
+test('a legend can print its symbols in another font, padded with blank glyphs either side', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: {
+        StitchSquares: { glyphs: { 0x41: 'square' } },
+        'StitchSquares,Bold': {
+          glyphs: { 0x00: 'square', 0x20: 'square', 0x41: 'square' },
+          unicode: { 0x00: '\u0000', 0x20: ' ' },
+        },
+      },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'legend',
+          symbolFont: 'StitchSquares,Bold',
+          paddedSymbols: true,
+          entries: [{ symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 2 }],
+        },
+      ],
+    }),
+  )
+
+  expect(
+    pdf.pages[0].glyphs.filter(({ font }) => font.startsWith('Stitch')).map(({ font, code }) => [font, code]),
+  ).toEqual([
+    ['StitchSquares,Bold', 0x00],
+    ['StitchSquares,Bold', 0x41],
+    ['StitchSquares,Bold', 0x00],
+    ['StitchSquares,Bold', 0x20],
+  ])
+})
+
+test('a legend can space words by moving the text along, with no space characters', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'legend',
+          wordSpacing: 'moved',
+          columns: ['symbol', 'name'],
+          entries: [
+            { symbol: '#', thread: { brand: 'DMC', code: '158' }, name: 'Cornflower Blue', strands: 2, count: 2 },
+          ],
+        },
+      ],
+    }),
+  )
+
+  const text = pdf.pages[0].glyphs.filter(({ font }) => font === 'Helvetica')
+  expect(text.map(({ unicode }) => unicode).join('')).toBe('CornflowerBlue')
+  const [r, b] = [text[9], text[10]]
+  // An r is 3.33 points wide at this size; the rest is the gap.
+  expect(b.x - r.x).toBeCloseTo(3.33 + 2.78, 1)
+})
+
+test('a legend can print several entries side by side on each line', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square', 0x42: 'triangle' } } },
+      symbols: {
+        '#': { font: 'StitchSquares', code: 0x41 },
+        '^': { font: 'StitchSquares', code: 0x42 },
+      },
+      pages: [
+        {
+          type: 'legend',
+          columns: ['symbol', 'code', 'strands'],
+          entriesPerLine: 2,
+          entries: [
+            { symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 2 },
+            { symbol: '^', thread: { brand: 'DMC', code: '321' }, name: 'Red', strands: 1, count: 2 },
+            { symbol: '#', thread: { brand: 'DMC', code: '3865' }, name: 'Winter White', strands: 2, count: 2 },
+          ],
+        },
+      ],
+    }),
+  )
+
+  expect(textLines(pdf.pages[0])).toEqual([
+    ['■', '310', '2', '▲', '321', '1'],
+    ['■', '3865', '2'],
+  ])
+})
+
+test('a blend prints on one row, its threads, names and strands each joined by +', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'legend',
+          entries: [
+            {
+              symbol: '#',
+              threads: [
+                { thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 1 },
+                { thread: { brand: 'DMC', code: '3371' }, name: 'Black Brown', strands: 1 },
+              ],
+              count: 40,
+            },
+          ],
+        },
+      ],
+    }),
+  )
+
+  const page = pdf.pages[0]
+  const [symbol] = page.glyphs.filter((glyph) => glyph.font === 'StitchSquares')
+  const row = page.text
+    .filter((text) => text.y === symbol.y && text.x > symbol.x)
+    .sort((a, b) => a.x - b.x)
+    .map((text) => text.str)
+  expect(row).toEqual(['DMC 310 + DMC 3371', 'Black + Black Brown', '1+1', '40'])
+})
+
+test('a legend entry can print a color swatch between its symbol and its thread', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square', 0x42: 'triangle' } } },
+      symbols: {
+        '#': { font: 'StitchSquares', code: 0x41 },
+        '^': { font: 'StitchSquares', code: 0x42 },
+      },
+      pages: [
+        {
+          type: 'legend',
+          entries: [
+            { symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 4 },
+            {
+              symbol: '^',
+              thread: { brand: 'Anchor', code: '403' },
+              name: 'Black',
+              strands: 2,
+              count: 1,
+              swatch: '#7F3FBF',
+            },
+          ],
+        },
+      ],
+    }),
+  )
+
+  const page = pdf.pages[0]
+  const symbol = page.glyphs.find((glyph) => glyph.font === 'StitchSquares' && glyph.code === 0x42)!
+  const thread = page.text.find(({ str }) => str === 'Anchor')!
+  expect(page.fills.map(({ color, x0, x1, y0 }) => ({ color, y0, between: x0 > symbol.x && x1 < thread.x }))).toEqual([
+    { color: '#7f3fbf', y0: symbol.y, between: true },
+  ])
+})
+
+test('a legend can print heading lines above its entries, in any script', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'legend',
+          headings: [
+            { symbol: 'Символ', brand: 'Номер', name: 'Название', strands: 'Нитей', count: 'Крестиков' },
+            { symbol: 'Symbol', brand: 'Number', name: 'Name', strands: 'Strands', count: 'Stitches' },
+          ],
+          entries: [{ symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 4 }],
+        },
+      ],
+    }),
+  )
+
+  const page = pdf.pages[0]
+  const [symbol] = page.glyphs.filter((glyph) => glyph.font === 'StitchSquares')
+  const lines = [...new Set(page.text.map(({ y }) => y))]
+    .sort((a, b) => b - a)
+    .map((y) =>
+      page.text
+        .filter((text) => text.y === y)
+        .sort((a, b) => a.x - b.x)
+        .map((text) => text.str),
+    )
+  expect(lines).toEqual([
+    ['Символ', 'Номер', 'Название', 'Нитей', 'Крестиков'],
+    ['Symbol', 'Number', 'Name', 'Strands', 'Stitches'],
+    ['■', 'DMC', '310', 'Black', '2', '4'],
+  ])
+  expect(page.text.find(({ str }) => str === 'DMC')!.y).toBe(symbol.y)
+})
+
+test('headings repeat over each entry that shares a line', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square', 0x42: 'triangle' } } },
+      symbols: {
+        '#': { font: 'StitchSquares', code: 0x41 },
+        '^': { font: 'StitchSquares', code: 0x42 },
+      },
+      pages: [
+        {
+          type: 'legend',
+          columns: ['symbol', 'code', 'strands'],
+          entriesPerLine: 2,
+          headings: [{ symbol: 'Symbol', code: 'Number', strands: 'Strands' }],
+          entries: [
+            { symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 2 },
+            { symbol: '^', thread: { brand: 'DMC', code: '321' }, name: 'Red', strands: 1, count: 2 },
+          ],
+        },
+      ],
+    }),
+  )
+
+  const lines = textLines(pdf.pages[0])
+  expect(lines).toEqual([
+    ['Symbol', 'Number', 'Strands', 'Symbol', 'Number', 'Strands'],
+    ['■', '310', '2', '▲', '321', '1'],
+  ])
+  const x = (str: string, nth = 0) => pdf.pages[0].text.filter((text) => text.str === str)[nth].x
+  expect([x('Strands'), x('Strands', 1)]).toEqual([x('2'), x('1')])
+})
+
+test('a PDF can carry a title in its metadata, in any script, and has none by default', async () => {
+  const describe = (title?: string) =>
+    buildChartPdf({
+      title,
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [{ type: 'chart', cell: { width: 10, height: 10 }, grid: ['#'] }],
+    })
+
+  expect((await readPdf(describe('Рыжик (Ginger)'))).title).toBe('Рыжик (Ginger)')
+  expect((await readPdf(describe())).title).toBeUndefined()
+})
+
 test('a PDF can hold pages that are neither chart nor legend, in the order given', async () => {
   const pdf = await readPdf(
     buildChartPdf({
