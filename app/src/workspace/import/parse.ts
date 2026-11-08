@@ -44,13 +44,19 @@ function distinct(values: number[]) {
   return sorted.filter((value, i) => i === 0 || value - sorted[i - 1] > TOLERANCE)
 }
 
-/** How far a set of segments reaches along their line, counting overlaps once. */
+/** Gaps no wider than this, in points, between strokes along a line are the gaps in a dotted or dashed line. */
+const DASH_GAP = 2
+
+/**
+ * How far a set of segments reaches along their line, counting overlaps once
+ * and the gaps in a dotted or dashed line as drawn.
+ */
 function coverage(segments: { from: number; to: number }[]) {
   const sorted = [...segments].sort((a, b) => a.from - b.from)
   let covered = 0
   let end = -Infinity
   for (const { from, to } of sorted) {
-    if (to > end) covered += to - Math.max(from, end)
+    if (to > end) covered += to - (from - end <= DASH_GAP ? end : from)
     end = Math.max(end, to)
   }
   return covered
@@ -69,10 +75,69 @@ function gridLines(lines: { at: number; from: number; to: number }[]) {
   return positions.filter((_, i) => lengths[i] >= longest / 2)
 }
 
+/** A filled shape no thicker than this, in points, and longer than it is thick, is a line drawn as a thin rectangle. */
+const MAX_RULE_WIDTH = 1.5
+
+/** The line along the middle of a thin filled rectangle, if `path` is one. */
+function ruleOf(path: Path) {
+  if (!path.fill || path.stroke) return undefined
+  const box = boxOfPath(path)
+  const [across, down] = [box.x1 - box.x0, box.y1 - box.y0]
+  if (down <= MAX_RULE_WIDTH && across > down) {
+    return { direction: 'horizontal' as const, at: (box.y0 + box.y1) / 2, from: box.x0, to: box.x1 }
+  }
+  if (across <= MAX_RULE_WIDTH && down > across) {
+    return { direction: 'vertical' as const, at: (box.x0 + box.x1) / 2, from: box.y0, to: box.y1 }
+  }
+  return undefined
+}
+
+type Segment = { at: number; from: number; to: number }
+
+/** The parts of segments that lie between the first and last of `edges`. */
+function within(segments: Segment[], edges: number[]) {
+  if (edges.length < 2) return segments
+  const [low, high] = [edges[0], edges.at(-1)!]
+  return segments.flatMap(({ at, from, to }) => {
+    const [start, end] = [Math.max(from, low), Math.min(to, high)]
+    return end > start ? [{ at, from: start, to: end }] : []
+  })
+}
+
+/** How far, as a share of the gap, a grid line may sit from even spacing. */
+const SPACING_SLACK = 0.25
+
+/**
+ * The longest run of neighbouring positions spaced evenly, as a grid's lines
+ * are. Lines that break the spacing, such as a logo's frame, aren't the
+ * grid's. Of runs as long, the most closely spaced is, since cells are smaller
+ * than anything else drawn on a chart page.
+ */
+function evenlySpaced(positions: number[]) {
+  let best = positions.slice(0, 1)
+  let bestGap = Infinity
+  for (let start = 0; start < positions.length - 1; start++) {
+    const gap = positions[start + 1] - positions[start]
+    let end = start + 1
+    // A line drawn twice to thicken it sits a little off its place, so gaps may differ by part of a cell.
+    while (end + 1 < positions.length && Math.abs(positions[end + 1] - positions[end] - gap) <= gap * SPACING_SLACK)
+      end++
+    const length = end - start + 1
+    if (length > best.length || (length === best.length && gap < bestGap)) {
+      best = positions.slice(start, end + 1)
+      bestGap = gap
+    }
+  }
+  return best
+}
+
 function findGrid(page: PagePrimitives): Grid | undefined {
   const horizontal: { at: number; from: number; to: number }[] = []
   const vertical: { at: number; from: number; to: number }[] = []
   for (const path of page.paths) {
+    // Some chart software draws grid lines as thin filled rectangles instead of strokes.
+    const rule = ruleOf(path)
+    if (rule) (rule.direction === 'horizontal' ? horizontal : vertical).push(rule)
     if (!path.stroke) continue
     let from: [number, number] | undefined
     for (const command of path.commands) {
@@ -80,16 +145,17 @@ function findGrid(page: PagePrimitives): Grid | undefined {
         const [x0, y0] = from
         const [x1, y1] = command.to
         const [across, down] = [Math.abs(x1 - x0), Math.abs(y1 - y0)]
-        if (down < TOLERANCE && across > TOLERANCE)
-          horizontal.push({ at: y0, from: Math.min(x0, x1), to: Math.max(x0, x1) })
-        if (across < TOLERANCE && down > TOLERANCE)
-          vertical.push({ at: x0, from: Math.min(y0, y1), to: Math.max(y0, y1) })
+        // The dots of a dotted line can be shorter than TOLERANCE, so a segment's direction is all that counts.
+        if (down < TOLERANCE && across > down) horizontal.push({ at: y0, from: Math.min(x0, x1), to: Math.max(x0, x1) })
+        if (across < TOLERANCE && down > across) vertical.push({ at: x0, from: Math.min(y0, y1), to: Math.max(y0, y1) })
       }
       from = command.type === 'move' || command.type === 'line' ? command.to : from
     }
   }
-  const xs = gridLines(vertical)
-  const ys = gridLines(horizontal).reverse()
+  // Lines beside the grid, such as a logo's frame, can make grid lines look short, so each side is measured again within the other.
+  const firstYs = evenlySpaced(gridLines(horizontal))
+  const xs = evenlySpaced(gridLines(within(vertical, firstYs)))
+  const ys = evenlySpaced(gridLines(within(horizontal, xs))).reverse()
   if (xs.length < 2 || ys.length < 2) return undefined
   return { xs, ys }
 }
@@ -149,10 +215,16 @@ function holdsSymbol(glyph: Glyph, grid: Grid) {
   return band(grid.xs, x) !== undefined && band(grid.ys, y, true) !== undefined
 }
 
+/** A glyph that prints nothing: code 0, or a space. Chart software pads symbols and fills blank cells with them. */
+function isBlank(glyph: Glyph) {
+  return glyph.code === 0 || glyph.code === 0x20
+}
+
 function placeGlyphs(page: PagePrimitives, grid: Grid) {
   const width = grid.xs.length - 1
   const placed: { cell: number; key: string }[] = []
   for (const glyph of page.glyphs) {
+    if (isBlank(glyph)) continue
     const { x, y } = centre(glyph.box)
     const column = band(grid.xs, x)
     const row = band(grid.ys, y, true)
@@ -353,9 +425,8 @@ function strandsAndCount(numbers: Word[], headings: Word[]): { strands?: string;
 function legendEntriesIn(line: Glyph[], symbolFontFor: LegendPageContext['symbolFontFor']) {
   const entries: Glyph[][] = []
   for (const glyph of line) {
-    // Some legends pad each symbol with blank glyphs from its font: code 0, or a space.
-    const blank = glyph.code === 0 || glyph.code === 0x20
-    if (symbolFontFor(glyph.font) && blank) continue
+    // Some legends pad each symbol with blank glyphs from its font.
+    if (symbolFontFor(glyph.font) && isBlank(glyph)) continue
     if (symbolFontFor(glyph.font)) entries.push([glyph])
     else entries.at(-1)?.push(glyph)
   }
@@ -517,10 +588,10 @@ function shadedOverlap(page: PagePrimitives, grid: Grid) {
   return shaded
 }
 
-/** Whether any filled shape sits inside the grid. */
+/** Whether any filled shape sits inside the grid, other than grid lines drawn as thin rectangles. */
 function fillsCells(page: PagePrimitives, grid: Grid) {
   return page.paths.some((path) => {
-    if (!path.fill) return false
+    if (!path.fill || ruleOf(path)) return false
     const { x, y } = centre(boxOfPath(path))
     return band(grid.xs, x) !== undefined && band(grid.ys, y, true) !== undefined
   })
