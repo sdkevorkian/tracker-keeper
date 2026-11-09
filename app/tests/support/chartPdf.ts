@@ -10,7 +10,14 @@ export interface ChartPdfDescription {
   /** The chart's symbols, by the one-character name chart grids and legend entries use. */
   symbols: Record<string, SymbolDescription>
   pages: PageDescription[]
+  /**
+   * Stores every page turned this far counterclockwise and sets /Rotate, so a viewer turns it
+   * clockwise back upright, as some PDF software does. Upright by default.
+   */
+  rotate?: Rotation
 }
+
+export type Rotation = 90 | 180 | 270
 
 export interface FontDescription {
   /** Character code (0–255) to the shape drawn for it. */
@@ -62,6 +69,8 @@ export interface ChartPage {
    * 'padded' pads shorter numbers with leading spaces to three characters so they line up, as some chart software does.
    */
   marginNumbers?: boolean | 'padded'
+  /** Prints the row margin numbers turned a quarter turn counterclockwise, reading upward, as some chart software does. */
+  sidewaysRowNumbers?: boolean
   /** Draws a backstitch straight along the middle of the first row and of the first column, through the cells. None by default. */
   backstitches?: boolean
   /** Shades the rows and columns a page repeats, and points arrows at where pages align, as chart software does. */
@@ -692,6 +701,14 @@ function marginNumbers(part: ChartPart) {
   part.grid.forEach((_row, row) => {
     const number = label(part.origin.row + row + 1)
     if (Number(number) % MARGIN_NUMBER_EVERY) return
+    if (part.sidewaysRowNumbers) {
+      // Turned so the text runs upward, its glyphs' tops pointing left: the baseline is the number's right edge.
+      const start = top - (row + 0.5) * height - textWidth(number) / 2
+      ops.push(
+        `BT /${TEXT_FONT} ${TEXT_SIZE} Tf 0 1 -1 0 ${MARGIN - MARGIN_NUMBER_GAP} ${start} Tm ${pdfString(number)} Tj ET`,
+      )
+      return
+    }
     const baseline = top - (row + 1) * height + (height - TEXT_SIZE) / 2 + 2
     ops.push(text(MARGIN - MARGIN_NUMBER_GAP - textWidth(number), baseline, number))
   })
@@ -790,6 +807,23 @@ function chartContent(page: ChartPart, symbols: Record<string, SymbolDescription
   return ops.join('\n')
 }
 
+/**
+ * The stored page's size and the transform that draws upright content sideways on it,
+ * so that a viewer turning the page `rotate` degrees clockwise shows it upright.
+ */
+function storedPage(rotate?: Rotation) {
+  switch (rotate) {
+    case undefined:
+      return { width: PAGE_WIDTH, height: PAGE_HEIGHT, transform: undefined }
+    case 90:
+      return { width: PAGE_HEIGHT, height: PAGE_WIDTH, transform: `0 1 -1 0 ${PAGE_HEIGHT} 0` }
+    case 180:
+      return { width: PAGE_WIDTH, height: PAGE_HEIGHT, transform: `-1 0 0 -1 ${PAGE_WIDTH} ${PAGE_HEIGHT}` }
+    case 270:
+      return { width: PAGE_HEIGHT, height: PAGE_WIDTH, transform: `0 -1 1 0 0 ${PAGE_WIDTH}` }
+  }
+}
+
 export function buildChartPdf(description: ChartPdfDescription): Uint8Array {
   checkSymbolFonts(description)
   const pdf = new PdfWriter()
@@ -830,10 +864,17 @@ export function buildChartPdf(description: ChartPdfDescription): Uint8Array {
     }
   }
 
+  const stored = storedPage(description.rotate)
   const pageIds = description.pages.flatMap(contentsFor).map((content) => {
-    const stream = pdf.addStream('', encoder.encode(content))
+    const turned = stored.transform
+      ? `q ${stored.transform} cm
+${content}
+Q`
+      : content
+    const stream = pdf.addStream('', encoder.encode(turned))
+    const rotate = description.rotate ? ` /Rotate ${description.rotate}` : ''
     return pdf.add(
-      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}]` +
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${stored.width} ${stored.height}]${rotate}` +
         ` /Resources ${resources} /Contents ${stream} 0 R >>`,
     )
   })

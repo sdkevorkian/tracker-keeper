@@ -16,8 +16,13 @@ export interface Glyph {
   code: number
   /** What the font says the character is; only meaningful for ordinary text. */
   unicode: string
-  /** Page coordinates, y up. */
+  /** Page coordinates as a viewer shows the page, turned upright, y up. */
   box: Box
+  /**
+   * Which way the glyph's text runs on the upright page, in quarter turns
+   * counterclockwise from rightward: 0 for ordinary text, 1 for text reading upward.
+   */
+  turns: 0 | 1 | 2 | 3
 }
 
 export type Point = [x: number, y: number]
@@ -51,6 +56,15 @@ export interface PdfPrimitives {
 type Matrix = [number, number, number, number, number, number]
 
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0]
+
+/**
+ * Maps the page's stored coordinates to the upright page a viewer shows, y up,
+ * applying the page's /Rotate. pdf.js's viewport does this with y down, so flip it back.
+ */
+function uprightTransform(page: { getViewport(options: { scale: number }): { transform: number[]; height: number } }) {
+  const viewport = page.getViewport({ scale: 1 })
+  return multiply(viewport.transform as Matrix, [1, 0, 0, -1, 0, viewport.height])
+}
 
 // pdf.js path data: each operation code is followed by its points.
 const DRAW = { moveTo: 0, lineTo: 1, curveTo: 2, quadraticCurveTo: 3, closePath: 4 }
@@ -86,6 +100,11 @@ function multiply(a: Matrix, b: Matrix): Matrix {
 
 function apply(m: Matrix, [x, y]: Point): Point {
   return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
+}
+
+/** Which way a matrix runs text, to the nearest quarter turn counterclockwise. */
+function turnsOf(m: Matrix): Glyph['turns'] {
+  return (((Math.round(Math.atan2(m[1], m[0]) / (Math.PI / 2)) % 4) + 4) % 4) as Glyph['turns']
 }
 
 function boxOf(points: Point[]): Box {
@@ -177,7 +196,7 @@ export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promi
       const paths: Path[] = []
       const stack: GraphicsState[] = []
       let state: GraphicsState = {
-        ctm: IDENTITY,
+        ctm: uprightTransform(page),
         lineWidth: 1,
         fillColor: '#000000',
         text: {
@@ -275,6 +294,7 @@ export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promi
                   apply(toPage, [0, t.rise + t.descent * t.size]),
                   apply(toPage, [advance * t.hScale, t.rise + t.ascent * t.size]),
                 ]),
+                turns: turnsOf(toPage),
               })
               const spacing = t.charSpacing + (glyph.unicode === ' ' ? t.wordSpacing : 0)
               text = multiply([1, 0, 0, 1, (advance + spacing) * t.hScale, 0], text)

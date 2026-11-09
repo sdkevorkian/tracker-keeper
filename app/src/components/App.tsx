@@ -23,6 +23,7 @@ function App({ workspace }: { workspace: Workspace }) {
   const state = useSyncExternalStore(workspace.subscribe, () => workspace.state)
   const [chartId, setChartId] = useState<string>()
   const [importError, setImportError] = useState<string>()
+  const [importing, setImporting] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const chart = chartId ? state.charts.get(chartId) : undefined
 
@@ -36,10 +37,13 @@ function App({ workspace }: { workspace: Workspace }) {
     event.target.value = ''
     if (!file) return
     setImportError(undefined)
+    setImporting(true)
     try {
       setChartId(await workspace.importPdf(new Uint8Array(await file.arrayBuffer())))
     } catch (error) {
       setImportError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -69,12 +73,18 @@ function App({ workspace }: { workspace: Workspace }) {
           hidden
           onChange={importFile}
         />
+        {importing && (
+          <p role="status" className="import-status">
+            <span className="spinner" aria-hidden="true" />
+            Loading chart…
+          </p>
+        )}
         {importError && (
           <p role="alert" className="import-error">
             {importError}
           </p>
         )}
-        {chart && <ChartView key={chart.id} chart={chart} />}
+        {chart && !importing && <ChartView key={chart.id} chart={chart} />}
       </main>
     </>
   )
