@@ -29,13 +29,22 @@ export interface PdfLine {
 }
 
 export interface PdfPage {
+  /** The page's /Rotate, in degrees clockwise: how far a viewer turns it. */
+  rotate: number
+  /** The page's size as a viewer shows it, turned upright. */
+  size: { width: number; height: number }
   glyphs: PdfGlyph[]
   /** Straight stroked segments. */
   lines: PdfLine[]
   /** The box around each filled shape, and its color as `#rrggbb`. */
   fills: { x0: number; y0: number; x1: number; y1: number; color: string }[]
-  /** The page's text as pdf.js extracts it, one item per text run. */
-  text: { str: string; x: number; y: number }[]
+  /** The page's text as pdf.js extracts it, one item per text run, placed as a viewer shows it (y up). */
+  text: {
+    str: string
+    x: number
+    y: number
+    /** Which way the text runs, in degrees counterclockwise from rightward. */ angle: number
+  }[]
 }
 
 type Matrix = [number, number, number, number, number, number]
@@ -57,6 +66,11 @@ function boxOf(path: ArrayLike<number>) {
     at += count
   }
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }
+}
+
+/** Which way a text matrix runs text, in whole degrees counterclockwise from rightward. */
+function angleOf([a, b]: number[]) {
+  return (Math.round((Math.atan2(b, a) * 180) / Math.PI) + 360) % 360
 }
 
 export async function readPdf(bytes: Uint8Array): Promise<{ title?: string; pages: PdfPage[] }> {
@@ -146,12 +160,22 @@ export async function readPdf(bytes: Uint8Array): Promise<{ title?: string; page
       }
     })
     const content = await page.getTextContent()
+    const viewport = page.getViewport({ scale: 1 })
+    // The viewport turns the page upright, y down; flip y back up.
+    const viewed = (x: number, y: number) => {
+      const [vx, vy] = viewport.convertToViewportPoint(x, y)
+      return { x: vx, y: viewport.height - vy }
+    }
     pages.push({
+      rotate: page.rotate,
+      size: { width: viewport.width, height: viewport.height },
       glyphs,
       lines,
       fills,
       text: content.items.flatMap((item) =>
-        'str' in item && item.str.trim() !== '' ? [{ str: item.str, x: item.transform[4], y: item.transform[5] }] : [],
+        'str' in item && item.str.trim() !== ''
+          ? [{ str: item.str, ...viewed(item.transform[4], item.transform[5]), angle: angleOf(item.transform) }]
+          : [],
       ),
     })
   }

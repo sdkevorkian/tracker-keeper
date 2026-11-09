@@ -67,6 +67,21 @@ test('pages joined by margin numbers padded with spaces to line up give every st
   expect(Array.from(chart.cells)).toEqual(cellsOf(grid))
 })
 
+test('pages joined by row numbers printed sideways, reading upward, give every stitch of the whole chart in its place', async () => {
+  const grid = patternGrid(24, 22)
+
+  const { workspace, chart } = await importChart({
+    grid,
+    pageSize: { width: 12, height: 11 },
+    marginNumbers: true,
+    sidewaysRowNumbers: true,
+  })
+
+  expect(workspace.state.charts.size).toBe(1)
+  expect({ width: chart.width, height: chart.height }).toEqual({ width: 24, height: 22 })
+  expect(Array.from(chart.cells)).toEqual(cellsOf(grid))
+})
+
 test('arrows outside the grid marking where pages align are not taken for grid lines', async () => {
   // 2 × 2 pages of 12 × 11 stitches, repeating 2 each way.
   const grid = patternGrid(22, 20)

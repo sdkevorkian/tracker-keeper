@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, test } from 'vitest'
-import { buildChartPdf } from './chartPdf.ts'
+import { buildChartPdf, type Rotation } from './chartPdf.ts'
 import { readPdf } from './readPdf.ts'
 
 test('a chart page prints each symbol in its cell, in its font, at its character code', async () => {
@@ -425,6 +425,36 @@ test('a chart page can thicken every 10th line by drawing it twice, half a point
   expect(columns).toEqual([0, 0.5, ...edges.slice(1, 10), 50, 50.5, ...edges.slice(11)])
   expect(rows).toEqual([0, 0.5, ...edges.slice(1, 10), 50, 50.5, ...edges.slice(11)])
   expect(lines.every(({ width }) => width === 0.5)).toBe(true)
+})
+
+test('row margin numbers can be printed turned a quarter turn, reading upward, left of their row', async () => {
+  const cell = 10
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { a: { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'chart',
+          cell: { width: cell, height: cell },
+          grid: Array.from({ length: 12 }, () => 'a'.repeat(12)),
+          marginNumbers: true,
+          sidewaysRowNumbers: true,
+        },
+      ],
+    }),
+  )
+
+  const [page] = pdf.pages
+  const left = Math.min(...page.lines.map((line) => Math.min(line.x1, line.x2)))
+  const top = Math.max(...page.lines.map((line) => Math.max(line.y1, line.y2)))
+  // Helvetica digits are 556/1000 of the font size long, and margin numbers are set at 10 points.
+  const length = (2 * 556 * 10) / 1000
+  const row = page.text.find((text) => text.x < left)!
+  expect(row).toMatchObject({ str: '10', angle: 90 })
+  // Reading upward, the number starts at its bottom end, centred on row 10.
+  expect(top - (row.y + length / 2)).toBeCloseTo(9.5 * cell)
+  expect(page.text.find((text) => text.y > top)).toMatchObject({ str: '10', angle: 0 })
 })
 
 test('margin numbers can be padded with leading spaces to three characters, so they line up', async () => {
@@ -943,3 +973,34 @@ test('two embedded fonts can share a character code, and a font can leave out it
     { font: 'Unmapped', code: 0x41, unicode: 'A', embedded: true },
   ])
 })
+
+test.each([90, 180, 270] as const)(
+  'a PDF can store every page turned by %i°, drawn sideways so a viewer turns it upright',
+  async (rotate) => {
+    const describe = (turned?: Rotation) =>
+      buildChartPdf({
+        rotate: turned,
+        fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+        symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+        pages: [
+          { type: 'text', lines: ['Test Sampler', 'A synthetic chart'] },
+          {
+            type: 'legend',
+            entries: [{ symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 1 }],
+          },
+        ],
+      })
+    const viewed = (pdf: Awaited<ReturnType<typeof readPdf>>) =>
+      pdf.pages.map(({ size, text }) => ({
+        size,
+        text: text.map(({ str, x, y }) => ({ str, x: Math.round(x), y: Math.round(y) })),
+      }))
+
+    const [upright, turned] = await Promise.all([readPdf(describe()), readPdf(describe(rotate))])
+
+    expect(upright.pages.map((page) => page.rotate)).toEqual([0, 0])
+    expect(turned.pages.map((page) => page.rotate)).toEqual([rotate, rotate])
+    expect(viewed(turned)).toEqual(viewed(upright))
+    expect(viewed(upright)[0].size).toEqual({ width: 612, height: 792 })
+  },
+)

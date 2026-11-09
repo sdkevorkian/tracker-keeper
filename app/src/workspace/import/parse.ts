@@ -196,8 +196,33 @@ function band(edges: number[], value: number, descending = false) {
   return undefined
 }
 
-/** Numbers printed in a line of text, each with the box around its digits. */
+/** A box turned `turns` quarter turns counterclockwise about the origin. */
+function turnBox(box: Box, turns: number): Box {
+  let corners: [number, number][] = [
+    [box.x0, box.y0],
+    [box.x1, box.y1],
+  ]
+  for (let i = 0; i < ((turns % 4) + 4) % 4; i++) corners = corners.map(([x, y]) => [-y, x])
+  const [[ax, ay], [bx, by]] = corners
+  return { x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by) }
+}
+
+/**
+ * Numbers printed in lines of text, each with the box around its digits.
+ * Text turned sideways, as some charts print row numbers, is read the way it runs.
+ */
 function numbersIn(glyphs: Glyph[]) {
+  return ([0, 1, 2, 3] as const).flatMap((turns) => {
+    // Turn this direction's glyphs to read left to right, then turn each number's box back.
+    const upright = glyphs
+      .filter((glyph) => glyph.turns === turns)
+      .map((glyph) => ({ ...glyph, box: turnBox(glyph.box, -turns) }))
+    return uprightNumbersIn(upright).map(({ value, box }) => ({ value, box: turnBox(box, turns) }))
+  })
+}
+
+/** Numbers printed in lines of left-to-right text, each with the box around its digits. */
+function uprightNumbersIn(glyphs: Glyph[]) {
   return linesOf(glyphs).flatMap((line) =>
     wordsOf(line).flatMap((spaced) => {
       // Some chart software pads shorter numbers with spaces so they line up.
