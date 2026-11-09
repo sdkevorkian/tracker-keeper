@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "test": "vitest run --project unit",
     "test:watch": "vitest --project unit",
+    "compare-charts": "node tests/realCharts/command.ts",
     "test:acceptance": "vitest run --project acceptance && playwright test",
     "generate-pwa-assets": "pwa-assets-generator",
     "prepare": "cd .. && husky app/.husky"

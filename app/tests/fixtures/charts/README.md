@@ -4,6 +4,16 @@ Real chart PDFs that are safe to commit. Everything else in the test suite uses 
 
 **Never add a purchased or third-party chart here**, or anything derived from one (extracted data, expected outputs). Those stay in the maintainer's private suite (see Further Notes in #1).
 
+## Expected outputs
+
+Each fixture's expected output sits next to it as `<name>.expected.json`: what it imports as (size, legend entries, stitch count per entry, and import issues). `npm test` compares each fixture with its expected output, and skips a fixture that has none yet. Record one only once the fixture imports correctly:
+
+```sh
+npm run compare-charts -- tests/fixtures/charts --update
+```
+
+The same command, given any folder, checks the charts there, such as the maintainer's private suite. It writes only into the folder it's given.
+
 ## pumpkin-slut.pdf
 
 - **Where it came from:** designed by Sara Kevorkian (Pointy Ends), the maintainer of this repo, in 2022, and added here by her as a test fixture.
