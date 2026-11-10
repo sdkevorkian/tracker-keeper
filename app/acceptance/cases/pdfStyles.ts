@@ -49,6 +49,16 @@ export default function pdfStyleCases(test: AcceptanceTest) {
   )
 
   test(
+    'a chart printed only as color blocks is still read as a chart, beside a legend of framed swatch boxes',
+    { needs: ['import', 'every chart'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['#^.', '^##'], printedIn: ['color blocks'], legendBoxes: 'framed swatches' })
+
+      await stitcher.seesCharts([{ width: 3, height: 2 }])
+    },
+  )
+
+  test(
     'a chart printed only as color blocks gives an import issue saying it has no symbols to read',
     { needs: ['import', 'import issues'] },
     async ({ stitcher }) => {

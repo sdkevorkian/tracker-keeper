@@ -527,6 +527,32 @@ function readLegendRow(line: Glyph[], page: LegendPageContext): LegendEntry | un
   }
 }
 
+/** Each line of a page that prints a symbol, as the legend entries read from it. */
+function legendLinesOn(page: PagePrimitives, symbolFontFor: LegendPageContext['symbolFontFor'], brand?: string) {
+  const lines = linesOf(page.glyphs)
+  const context: LegendPageContext = {
+    symbolFontFor,
+    fills: page.paths.filter((path) => path.fill && !path.stroke),
+    brand,
+    headings: lines
+      .filter((line) => !line.some((glyph) => symbolFontFor(glyph.font)))
+      .flatMap((line) => textWordsOf(line)),
+  }
+  return lines
+    .filter((line) => line.some((glyph) => symbolFontFor(glyph.font)))
+    .map((line) => legendEntriesIn(line, symbolFontFor).flatMap((entry) => readLegendRow(entry, context) ?? []))
+}
+
+/**
+ * Whether most of a page's lines that print a symbol read as legend entries.
+ * A legend page can rule boxes around its swatches or symbols, which look
+ * like a small grid; a chart page's lines are symbols alone.
+ */
+function readsAsLegend(page: PagePrimitives, symbolFontFor: LegendPageContext['symbolFontFor'], brand?: string) {
+  const lines = legendLinesOn(page, symbolFontFor, brand)
+  return lines.filter((entries) => entries.length > 0).length > lines.length / 2
+}
+
 interface ChartPage {
   /** The page's number in the PDF, from 1. */
   page: number
@@ -839,22 +865,37 @@ function cellsOf(cells: Uint16Array, value: number) {
 }
 
 export function parseCharts({ title: metadataTitle, pages }: PdfPrimitives): ParsedChart[] {
+  const grids = pages.map((page) => {
+    const grid = findGrid(page)
+    const placed = grid && placeGlyphs(page, grid)
+    if (!grid || !placed || holdsText(placed)) return undefined
+    return { grid, placed, offset: offsetFromMarginNumbers(page, grid), filled: fillsCells(page, grid) }
+  })
+  // An empty grid, such as a ruled box on a legend page, is a chart page only where it could be part of a chart:
+  // the PDF prints no other, or its margins number it.
+  const isEmpty = (found: (typeof grids)[number]) => found && found.placed.length === 0 && !found.filled
+  const anyContent = grids.some((found) => found && !isEmpty(found))
+  const candidates = grids.map((found) => (!isEmpty(found) || !anyContent || found?.offset ? found : undefined))
+  // Symbols are in the fonts printed in grids, which may include a legend's boxed symbols.
+  const gridFonts = new Set(candidates.flatMap((found) => found?.placed.map(({ key }) => symbolOf(key).font) ?? []))
+  const gridFontFor = (font: string) => chartFontFor(font, gridFonts)
+  const pdfBrand = legendBrandIn(pages)
   const runs: ChartPage[][] = []
   const others: { page: number; primitives: PagePrimitives }[] = []
   let run: ChartPage[] | undefined
   for (const [index, page] of pages.entries()) {
-    const grid = findGrid(page)
-    const placed = grid && placeGlyphs(page, grid)
-    if (grid && placed && !holdsText(placed)) {
+    const found = candidates[index]
+    if (found && !readsAsLegend(page, gridFontFor, pdfBrand)) {
+      const { grid, placed, offset, filled } = found
       if (!run) runs.push((run = []))
       run.push({
         page: index + 1,
         width: grid.xs.length - 1,
         height: grid.ys.length - 1,
         placed,
-        offset: offsetFromMarginNumbers(page, grid),
+        offset,
         shaded: shadedOverlap(page, grid),
-        filled: fillsCells(page, grid),
+        filled,
       })
     } else {
       others.push({ page: index + 1, primitives: page })
@@ -874,20 +915,7 @@ export function parseCharts({ title: metadataTitle, pages }: PdfPrimitives): Par
     const symbolFonts = new Set(placed.map(({ key }) => symbolOf(key).font))
     const symbolFontFor = (font: string) => chartFontFor(font, symbolFonts)
     const brand = legendBrandIn(own)
-    const rows = own.flatMap((page) => {
-      const lines = linesOf(page.glyphs)
-      const context: LegendPageContext = {
-        symbolFontFor,
-        fills: page.paths.filter((path) => path.fill && !path.stroke),
-        brand,
-        headings: lines
-          .filter((line) => !line.some((glyph) => symbolFontFor(glyph.font)))
-          .flatMap((line) => textWordsOf(line)),
-      }
-      return lines.flatMap((line) =>
-        legendEntriesIn(line, symbolFontFor).flatMap((entry) => readLegendRow(entry, context) ?? []),
-      )
-    })
+    const rows = own.flatMap((page) => legendLinesOn(page, symbolFontFor, brand).flat())
     // A PDF may print the same legend on more than one page; a symbol's first entry is its own.
     const legend = rows.filter(
       (row, n) => rows.findIndex((other) => symbolKey(other.symbol) === symbolKey(row.symbol)) === n,

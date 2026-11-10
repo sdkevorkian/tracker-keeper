@@ -77,6 +77,32 @@ export default function legendCases(test: AcceptanceTest) {
     },
   )
 
+  test(
+    "a legend with a column of framed swatch boxes is read as the chart's legend",
+    { needs: ['import', 'legend'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['#^', '^^'], legendBoxes: 'framed swatches' })
+
+      await stitcher.seesLegend([
+        { threads: [{ thread: 'DMC 310', name: 'Black', strands: 2 }], printedStitches: 1 },
+        { threads: [{ thread: 'DMC 321', name: 'Red', strands: 2 }], printedStitches: 3 },
+      ])
+    },
+  )
+
+  test(
+    "a legend that prints each symbol in a ruled box is read as the chart's legend",
+    { needs: ['import', 'legend'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['#^', '^^'], legendBoxes: 'boxed symbols' })
+
+      await stitcher.seesLegend([
+        { threads: [{ thread: 'DMC 310', name: 'Black', strands: 2 }], printedStitches: 1 },
+        { threads: [{ thread: 'DMC 321', name: 'Red', strands: 2 }], printedStitches: 3 },
+      ])
+    },
+  )
+
   test("the chart's title is read from its info page", { needs: ['import', 'chart title'] }, async ({ stitcher }) => {
     await stitcher.importsChart({ grid: ['#^', '^^'], printedTitle: 'Autumn Fox' })
 

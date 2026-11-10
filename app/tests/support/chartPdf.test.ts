@@ -846,6 +846,90 @@ test('a legend entry can print a color swatch between its symbol and its thread'
   ])
 })
 
+/** Each distinct position, in order, and the gaps between neighbours, rounded to a hundredth of a point. */
+function gapsBetween(positions: number[]) {
+  const sorted = [...new Set(positions.map((value) => Math.round(value * 100) / 100))].sort((a, b) => a - b)
+  return sorted.slice(1).map((value, i) => Math.round((value - sorted[i]) * 100) / 100)
+}
+
+test('a legend can draw each swatch in a ruled box, the boxes stacked in a column inside a frame', async () => {
+  const entry = (symbol: string, code: string, swatch: string) => ({
+    symbol,
+    thread: { brand: 'DMC', code },
+    name: 'Thread',
+    strands: 2,
+    count: 1,
+    swatch,
+  })
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square', 0x42: 'triangle', 0x43: 'square' } } },
+      symbols: {
+        '#': { font: 'StitchSquares', code: 0x41 },
+        '^': { font: 'StitchSquares', code: 0x42 },
+        '@': { font: 'StitchSquares', code: 0x43 },
+      },
+      pages: [
+        {
+          type: 'legend',
+          boxes: 'framed swatches',
+          entries: [entry('#', '310', '#000000'), entry('^', '321', '#C72B3B'), entry('@', '995', '#2E6FC4')],
+        },
+      ],
+    }),
+  )
+
+  const page = pdf.pages[0]
+  const horizontal = page.lines.filter(({ y1, y2 }) => y1 === y2)
+  const vertical = page.lines.filter(({ x1, x2 }) => x1 === x2)
+  // A box per legend row, edge to edge, and the frame 2 points outside them.
+  expect(gapsBetween(horizontal.map(({ y1 }) => y1))).toEqual([2, 16, 16, 16, 2])
+  expect(gapsBetween(vertical.map(({ x1 }) => x1))).toEqual([2, 28, 2])
+  // Each swatch sits in its own box, on its symbol's line.
+  const boxTops = [...new Set(horizontal.map(({ y1 }) => y1))].sort((a, b) => b - a).slice(1, 4)
+  const symbols = page.glyphs.filter((glyph) => glyph.font === 'StitchSquares')
+  expect(page.fills.map(({ y0, y1 }) => boxTops.findIndex((top) => y1 <= top && y0 >= top - 16))).toEqual([0, 1, 2])
+  expect(page.fills.map(({ y0 }) => y0)).toEqual(symbols.map(({ y }) => y))
+})
+
+test('a legend can print each symbol in a ruled box, the boxes stacked edge to edge', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square', 0x42: 'triangle' } } },
+      symbols: {
+        '#': { font: 'StitchSquares', code: 0x41 },
+        '^': { font: 'StitchSquares', code: 0x42 },
+      },
+      pages: [
+        {
+          type: 'legend',
+          boxes: 'boxed symbols',
+          entries: [
+            { symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 1 },
+            { symbol: '^', thread: { brand: 'DMC', code: '321' }, name: 'Red', strands: 2, count: 1 },
+          ],
+        },
+      ],
+    }),
+  )
+
+  const page = pdf.pages[0]
+  const ys = [...new Set(page.lines.filter(({ y1, y2 }) => y1 === y2).map(({ y1 }) => y1))].sort((a, b) => b - a)
+  const xs = [...new Set(page.lines.filter(({ x1, x2 }) => x1 === x2).map(({ x1 }) => x1))].sort((a, b) => a - b)
+  expect(gapsBetween(ys)).toEqual([16, 16])
+  expect(gapsBetween(xs)).toEqual([16])
+  // Each symbol starts inside its own box, and its line's text starts after the box.
+  const symbols = page.glyphs.filter((glyph) => glyph.font === 'StitchSquares')
+  const boxEdgesAbove = (y: number) => ys.filter((edge) => edge > y).length
+  expect(symbols.map(({ x, y }) => ({ inside: x >= xs[0] && x < xs[1], box: boxEdgesAbove(y) }))).toEqual([
+    { inside: true, box: 1 },
+    { inside: true, box: 2 },
+  ])
+  expect(Math.min(...page.text.filter(({ str }) => str !== '■' && str !== '▲').map(({ x }) => x))).toBeGreaterThan(
+    xs[1],
+  )
+})
+
 test('a legend can print heading lines above its entries, in any script', async () => {
   const pdf = await readPdf(
     buildChartPdf({
