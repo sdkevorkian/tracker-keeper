@@ -3,6 +3,7 @@
 import { deepStrictEqual, ok } from 'node:assert/strict'
 import {
   buildChartPdf,
+  type LegendBoxes,
   type LegendColumn,
   type LegendEntry,
   type LegendThread,
@@ -56,6 +57,8 @@ export type ChartSpec =
     legend?: Record<string, LegendRowSpec | 'not printed'>
     /** Heading lines the legend prints above its entries, each naming the columns it heads. None by default. */
     legendHeadings?: Partial<Record<LegendColumn, string>>[]
+    /** Ruled boxes the legend draws. Framed swatches print each row's swatch in its symbol's color. None by default. */
+    legendBoxes?: LegendBoxes
   }
 
 /** Longer than this and a stitcher notices the page freeze. */
@@ -163,9 +166,12 @@ function designPages(chart: ChartSpec): PageDescription[] {
     {
       type: 'legend',
       headings: chart.legendHeadings,
+      boxes: chart.legendBoxes,
       entries: [...counts].flatMap(([symbol, count]) => {
         const spec = chart.legend?.[symbol]
-        return spec === 'not printed' ? [] : [legendEntry(symbol, count, spec)]
+        if (spec === 'not printed') return []
+        const swatch = chart.legendBoxes === 'framed swatches' ? COLORS[symbol] : undefined
+        return [legendEntry(symbol, count, { swatch, ...spec })]
       }),
     },
     ...infoPage(chart),

@@ -110,8 +110,16 @@ export interface LegendPage {
   paddedSymbols?: boolean
   /** Heading lines above the entries, one string per column, in any script. */
   headings?: Partial<Record<LegendColumn, string>>[]
+  /** Ruled boxes the legend draws, as some chart software does. None by default. */
+  boxes?: LegendBoxes
   entries: LegendEntry[]
 }
+
+/**
+ * Ruled boxes a legend draws, one per entry, edge to edge down the column:
+ * around each swatch, with a frame around them all, or around each symbol.
+ */
+export type LegendBoxes = 'framed swatches' | 'boxed symbols'
 
 /** A page that is neither chart nor legend, such as a cover or instructions. */
 export interface TextPage {
@@ -196,6 +204,10 @@ const STITCHES_PER_SKEIN = 2000
 const HEADING_FONT = 'LegendText'
 const HEADING_ADVANCE = 500
 const SWATCH_SIZE = 8
+// A legend box runs this far below its row's baseline, and is a row tall.
+const LEGEND_BOX_DESCENT = 4
+// How far a frame around legend boxes sits outside them.
+const LEGEND_FRAME_PADDING = 2
 const FIRST_HEADING_CODE = 0x21
 
 // What the ToUnicode map says each shape is.
@@ -470,11 +482,64 @@ function legendContent(
     const codes = page.paddedSymbols ? `<00${code}0020>` : `<${code}>`
     const symbolOps = (x: number, at: number) =>
       `BT /${fontKeys.get(font)} ${TEXT_SIZE} Tf 1 0 0 1 ${x} ${at} Tm ${codes} Tj ET`
+    // A swatch in a box sits in the middle of it.
+    const inset = (name: LegendColumn) =>
+      name === 'swatch' && page.boxes === 'framed swatches' ? (LEGEND_COLUMN_WIDTHS.swatch - SWATCH_SIZE) / 2 : 0
     return columns.flatMap((name) =>
-      legendCell(entry, name, columns, { x: left + column(name), y, row: i + 1 }, symbolOps, write),
+      legendCell(entry, name, columns, { x: left + column(name) + inset(name), y, row: i + 1 }, symbolOps, write),
     )
   })
-  return [...noteOps, ...headingOps, ...entryOps].join('\n')
+  const boxOps = page.boxes
+    ? legendBoxes(
+        page,
+        columns,
+        (i) => ({
+          left: (i % perLine) * entryWidth,
+          y: rowY(notes.length + headings.length + Math.floor(i / perLine)),
+        }),
+        column,
+      )
+    : []
+  return [...noteOps, ...headingOps, ...entryOps, ...boxOps].join('\n')
+}
+
+/** A rectangle's outline, drawn as four straight lines. */
+function outline(x0: number, y0: number, x1: number, y1: number) {
+  return `${GRID_LINE_WIDTH} w ${x0} ${y0} m ${x1} ${y0} l ${x1} ${y1} l ${x0} ${y1} l ${x0} ${y0} l S`
+}
+
+/** A box around each entry's swatch or symbol, and a frame around each column of swatch boxes. */
+function legendBoxes(
+  page: LegendPage,
+  columns: LegendColumn[],
+  place: (entry: number) => { left: number; y: number },
+  column: (name: LegendColumn) => number,
+) {
+  const boxed: LegendColumn = page.boxes === 'framed swatches' ? 'swatch' : 'symbol'
+  if (!columns.includes(boxed)) throw new Error(`Legend boxes need a ${boxed} column`)
+  const width = LEGEND_COLUMN_WIDTHS[boxed]
+  const boxes = page.entries.map((_, i) => {
+    const { left, y } = place(i)
+    const [x0, y0] = [left + column(boxed), y - LEGEND_BOX_DESCENT]
+    return { x0, y0, x1: x0 + width, y1: y0 + LEGEND_ROW_HEIGHT }
+  })
+  const ops = boxes.map(({ x0, y0, x1, y1 }) => outline(x0, y0, x1, y1))
+  if (page.boxes === 'framed swatches') {
+    // One frame around each column of boxes, as entries side by side make several.
+    for (const x0 of new Set(boxes.map((box) => box.x0))) {
+      const inColumn = boxes.filter((box) => box.x0 === x0)
+      const pad = LEGEND_FRAME_PADDING
+      ops.push(
+        outline(
+          x0 - pad,
+          Math.min(...inColumn.map((box) => box.y0)) - pad,
+          x0 + width + pad,
+          Math.max(...inColumn.map((box) => box.y1)) + pad,
+        ),
+      )
+    }
+  }
+  return ops
 }
 
 /** How a chart page draws its grid lines. */
