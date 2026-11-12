@@ -207,6 +207,24 @@ export class Stitcher {
     await this.driver.importPdf(chartPdf(...designs))
   }
 
+  /** Closes the app and opens it again, as a stitcher coming back another day would. */
+  async reloadsTheApp() {
+    await this.driver.reload()
+  }
+
+  /** The charts the home screen lists, by title, in the order it lists them. */
+  async seesChartsListed(expected: string[]) {
+    deepStrictEqual(await this.driver.listedCharts(), expected)
+  }
+
+  async goesToYourCharts() {
+    await this.driver.goToYourCharts()
+  }
+
+  async opensChart(title: string) {
+    await this.driver.openChart(title)
+  }
+
   async seesChart(expected: { width: number; height: number }) {
     deepStrictEqual(await this.driver.shownChartSize(), expected)
   }

@@ -14,6 +14,12 @@ export type Capability =
   | 'legend'
   /** Reading the title of the chart on screen. */
   | 'chart title'
+  /** Closing the app and opening it again, keeping what the browser stored. */
+  | 'reload'
+  /** Listing the stored charts on the home screen, and opening one. */
+  | 'chart library'
+  /** Each chart having a page of its own, which a reload stays on. */
+  | 'chart pages'
 
 /** Stitches the stitcher can see, numbered from 1 like a printed chart's margins. Ends are inclusive. */
 export interface ShownStitches {
@@ -67,6 +73,14 @@ export interface Driver {
   readonly name: string
   readonly capabilities: ReadonlySet<Capability>
   importPdf(bytes: Uint8Array): Promise<void>
+  /** Closes the app and opens it again, keeping what the browser stored. */
+  reload(): Promise<void>
+  /** The titles of the charts the home screen lists, in its order. */
+  listedCharts(): Promise<string[]>
+  /** Goes to the page listing every stored chart. */
+  goToYourCharts(): Promise<void>
+  /** Opens the chart with this title from the home screen. */
+  openChart(title: string): Promise<void>
   /** The size of the chart the stitcher is looking at, in stitches. */
   shownChartSize(): Promise<{ width: number; height: number }>
   /** The longest the page was blocked during the last import, in milliseconds. */

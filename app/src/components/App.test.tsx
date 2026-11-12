@@ -9,6 +9,7 @@ afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   delete document.documentElement.dataset.theme
+  window.location.hash = ''
 })
 
 function openIn(

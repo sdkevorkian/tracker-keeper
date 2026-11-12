@@ -1,5 +1,6 @@
 // Reaches the app through the headless Workspace, in-process.
-import { createWorkspace } from '../../src/workspace/workspace.ts'
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
+import { listCharts, openWorkspace, type Workspace } from '../../src/workspace/workspace.ts'
 import { readChartsInProcess } from '../../src/workspace/import/readCharts.ts'
 import type {
   Capability,
@@ -21,16 +22,53 @@ export class WorkspaceDriver implements Driver {
     'every chart',
     'legend',
     'chart title',
+    'reload',
+    'chart library',
   ])
-  private workspace = createWorkspace({ readCharts: readChartsInProcess })
+  /** In memory, and kept across reloads like the browser's. */
+  private database = { indexedDB: new IDBFactory(), IDBKeyRange }
+  private opened?: Workspace
   private chartId?: string
   /** The charts the last import added, in the order it added them. */
   private importedIds: string[] = []
 
   async importPdf(bytes: Uint8Array) {
-    const before = new Set(this.workspace.state.charts.keys())
-    this.chartId = await this.workspace.importPdf(bytes)
-    this.importedIds = [...this.workspace.state.charts.keys()].filter((id) => !before.has(id))
+    const workspace = await this.open()
+    const before = new Set(workspace.state.charts.keys())
+    this.chartId = await workspace.importPdf(bytes)
+    this.importedIds = [...workspace.state.charts.keys()].filter((id) => !before.has(id))
+  }
+
+  async reload() {
+    await this.opened?.whenSaved()
+    this.opened = undefined
+    this.chartId = undefined
+    this.importedIds = []
+  }
+
+  async listedCharts() {
+    return listCharts((await this.open()).state).map(({ title }) => title ?? 'Untitled chart')
+  }
+
+  async goToYourCharts() {
+    this.chartId = undefined
+  }
+
+  async openChart(title: string) {
+    const chart = listCharts((await this.open()).state).find((listed) => listed.title === title)
+    if (!chart) throw new Error(`No chart titled "${title}" is listed`)
+    this.chartId = chart.id
+  }
+
+  private async open() {
+    this.opened ??= await openWorkspace({ readCharts: readChartsInProcess, database: this.database })
+    return this.opened
+  }
+
+  /** The Workspace as last opened. Every query comes after an import, which opens it. */
+  private get workspace() {
+    if (!this.opened) throw new Error('The app has not been opened')
+    return this.opened
   }
 
   async importedCharts(): Promise<ShownChart[]> {
