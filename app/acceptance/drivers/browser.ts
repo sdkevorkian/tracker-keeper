@@ -10,7 +10,14 @@ type WatchedWindow = Window & { longTasks?: number[] }
 
 export class BrowserDriver implements Driver {
   readonly name = 'browser'
-  readonly capabilities: ReadonlySet<Capability> = new Set(['import', 'responsiveness', 'pan and zoom'])
+  readonly capabilities: ReadonlySet<Capability> = new Set([
+    'import',
+    'responsiveness',
+    'pan and zoom',
+    'reload',
+    'chart library',
+    'chart pages',
+  ])
 
   private page: Page
 
@@ -38,6 +45,26 @@ export class BrowserDriver implements Driver {
     const fileChooser = this.page.waitForEvent('filechooser')
     await this.page.getByRole('button', { name: 'Import' }).click()
     await (await fileChooser).setFiles(file)
+    await expect(this.chart()).toBeVisible()
+  }
+
+  async reload() {
+    await this.page.reload()
+    await expect(this.page.getByRole('heading', { name: 'tracker-keeper', level: 1 })).toBeVisible()
+  }
+
+  async listedCharts() {
+    const list = this.page.getByRole('list', { name: 'Your charts' })
+    await expect(list).toBeVisible()
+    return list.getByRole('link').allTextContents()
+  }
+
+  async goToYourCharts() {
+    await this.page.getByRole('link', { name: 'Your charts' }).click()
+  }
+
+  async openChart(title: string) {
+    await this.page.getByRole('list', { name: 'Your charts' }).getByRole('link', { name: title, exact: true }).click()
     await expect(this.chart()).toBeVisible()
   }
 

@@ -1,6 +1,9 @@
 import { useRef, useState, useSyncExternalStore, type ChangeEvent } from 'react'
-import type { Workspace } from '../workspace/workspace.ts'
+import type { Chart } from '../workspace/chart.ts'
+import { listCharts, type Workspace } from '../workspace/workspace.ts'
+import { ChartLibrary } from './ChartLibrary.tsx'
 import { ChartView } from './ChartView.tsx'
+import { chartHref, goTo, useRoute, yourChartsHref } from './route.ts'
 import './App.css'
 
 type UserAgentData = { brands: { brand: string }[] }
@@ -21,11 +24,10 @@ function App({ workspace }: { workspace: Workspace }) {
   const [theme, setTheme] = useState<Theme>(preferredTheme)
   const otherTheme = theme === 'dark' ? 'light' : 'dark'
   const state = useSyncExternalStore(workspace.subscribe, () => workspace.state)
-  const [chartId, setChartId] = useState<string>()
+  const route = useRoute()
   const [importError, setImportError] = useState<string>()
   const [importing, setImporting] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
-  const chart = chartId ? state.charts.get(chartId) : undefined
 
   function toggleTheme() {
     document.documentElement.dataset.theme = otherTheme
@@ -39,7 +41,7 @@ function App({ workspace }: { workspace: Workspace }) {
     setImportError(undefined)
     setImporting(true)
     try {
-      setChartId(await workspace.importPdf(new Uint8Array(await file.arrayBuffer())))
+      goTo(chartHref(await workspace.importPdf(new Uint8Array(await file.arrayBuffer()))))
     } catch (error) {
       setImportError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -84,8 +86,25 @@ function App({ workspace }: { workspace: Workspace }) {
             {importError}
           </p>
         )}
-        {chart && !importing && <ChartView key={chart.id} chart={chart} />}
+        {!importing &&
+          (route.page === 'chart' ? (
+            <ChartPage chart={state.charts.get(route.chartId)} />
+          ) : (
+            <ChartLibrary charts={listCharts(state)} />
+          ))}
       </main>
+    </>
+  )
+}
+
+/** One chart's own page. `chart` is undefined when the page's chart isn't stored here. */
+function ChartPage({ chart }: { chart?: Chart }) {
+  return (
+    <>
+      <a className="button back-to-library" href={yourChartsHref}>
+        Your charts
+      </a>
+      {chart ? <ChartView key={chart.id} chart={chart} /> : <p>This chart isn't stored in this browser.</p>}
     </>
   )
 }
