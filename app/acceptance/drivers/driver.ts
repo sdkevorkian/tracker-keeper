@@ -20,6 +20,8 @@ export type Capability =
   | 'chart library'
   /** Each chart having a page of its own, which a reload stays on. */
   | 'chart pages'
+  /** Opening the source PDF at the page that covers the view. */
+  | 'view source PDF'
 
 /** Stitches the stitcher can see, numbered from 1 like a printed chart's margins. Ends are inclusive. */
 export interface ShownStitches {
@@ -96,6 +98,8 @@ export interface Driver {
   chartTitle(): Promise<string | undefined>
   /** The import issues of the chart the stitcher is looking at. */
   importIssues(): Promise<ShownImportIssue[]>
+  /** Opens the source PDF from the chart view, returning the page it opened at. */
+  viewSourcePdf(): Promise<number>
   zoomIn(): Promise<void>
   /** Drags the chart left, which brings stitches from its right into view. */
   dragChartLeft(): Promise<void>

@@ -65,4 +65,21 @@ export default function multiPageCases(test: AcceptanceTest) {
       { page: 4, across: [13, 24], down: [11, 20] },
     ])
   })
+
+  test(
+    'viewing the source PDF opens the page that covers the middle of the view',
+    { needs: ['import', 'view source PDF'] },
+    async ({ stitcher }) => {
+      // Fitted to the screen, the chart's middle is on the second of its three pages.
+      await stitcher.importsChart({
+        size: { width: 36, height: 10 },
+        printedOn: { pagesAcross: 3, pagesDown: 1 },
+        marginNumbers: true,
+      })
+
+      await stitcher.viewsSourcePdf()
+
+      await stitcher.seesSourcePdfOpenAtPage(2)
+    },
+  )
 }

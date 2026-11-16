@@ -154,6 +154,10 @@ export class WorkspaceDriver implements Driver {
     throw new Error('The Workspace driver has no view of the chart')
   }
 
+  async viewSourcePdf(): Promise<number> {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
   async zoomIn() {
     throw new Error('The Workspace driver has no view of the chart')
   }

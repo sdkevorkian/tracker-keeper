@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { drawChart } from '../view/draw.ts'
+import { pageForView } from '../view/sourcePage.ts'
 import { fitChart, panBy, visibleCells, zoomAt, type Size, type Viewport } from '../view/viewport.ts'
 import type { Chart } from '../workspace/chart.ts'
 
 /** How much one pixel of wheel scroll zooms. */
 const WHEEL_ZOOM = 0.002
 
+interface ChartViewProps {
+  chart: Chart
+  /** Opens the source PDF at the page covering the view, or at its start when no page does. */
+  onViewSourcePdf: (page: number | undefined) => void
+}
+
 /** The chart on a canvas, panned by dragging and zoomed with the wheel. */
-export function ChartView({ chart }: { chart: Chart }) {
+export function ChartView({ chart, onViewSourcePdf }: ChartViewProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState<Size>({ width: 0, height: 0 })
   // Undefined until the stitcher pans or zooms; until then the whole chart is fitted to the canvas.
@@ -56,23 +63,34 @@ export function ChartView({ chart }: { chart: Chart }) {
     `showing stitches ${left + 1} to ${right} across and ${top + 1} to ${bottom} down`
 
   return (
-    <canvas
-      ref={canvas}
-      className="chart-view"
-      role="img"
-      aria-label={label}
-      onPointerDown={(event) => {
-        event.currentTarget.setPointerCapture(event.pointerId)
-        drag.current = { x: event.clientX, y: event.clientY }
-      }}
-      onPointerMove={(event) => {
-        if (!drag.current) return
-        const moved = { x: event.clientX - drag.current.x, y: event.clientY - drag.current.y }
-        drag.current = { x: event.clientX, y: event.clientY }
-        setViewport((current) => panBy(current ?? viewport, moved))
-      }}
-      onPointerUp={() => (drag.current = undefined)}
-      onPointerCancel={() => (drag.current = undefined)}
-    />
+    <>
+      <div className="chart-toolbar">
+        <button
+          type="button"
+          className="button"
+          onClick={() => onViewSourcePdf(pageForView(viewport, size, chart.source.pages))}
+        >
+          View source PDF
+        </button>
+      </div>
+      <canvas
+        ref={canvas}
+        className="chart-view"
+        role="img"
+        aria-label={label}
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId)
+          drag.current = { x: event.clientX, y: event.clientY }
+        }}
+        onPointerMove={(event) => {
+          if (!drag.current) return
+          const moved = { x: event.clientX - drag.current.x, y: event.clientY - drag.current.y }
+          drag.current = { x: event.clientX, y: event.clientY }
+          setViewport((current) => panBy(current ?? viewport, moved))
+        }}
+        onPointerUp={() => (drag.current = undefined)}
+        onPointerCancel={() => (drag.current = undefined)}
+      />
+    </>
   )
 }

@@ -193,6 +193,8 @@ export class Stitcher {
   private driver: Driver
   /** What was on screen before the last zoom or drag. */
   private shownBefore?: ShownStitches
+  /** The page the source PDF last opened at. */
+  private sourcePdfPage?: number
 
   constructor(driver: Driver) {
     this.driver = driver
@@ -264,6 +266,14 @@ export class Stitcher {
 
   async seesNoImportIssues() {
     deepStrictEqual(await this.driver.importIssues(), [])
+  }
+
+  async viewsSourcePdf() {
+    this.sourcePdfPage = await this.driver.viewSourcePdf()
+  }
+
+  async seesSourcePdfOpenAtPage(expected: number) {
+    deepStrictEqual(this.sourcePdfPage, expected)
   }
 
   async zoomsIn() {

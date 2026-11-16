@@ -17,6 +17,7 @@ export class BrowserDriver implements Driver {
     'reload',
     'chart library',
     'chart pages',
+    'view source PDF',
   ])
 
   private page: Page
@@ -105,6 +106,25 @@ export class BrowserDriver implements Driver {
 
   async importIssues(): Promise<ShownImportIssue[]> {
     throw new Error("The app doesn't show import issues yet")
+  }
+
+  async viewSourcePdf() {
+    // Chrome shows the PDF in its own viewer. The headless shell the cases run in
+    // has none, so it downloads it instead; either way the URL names the page.
+    const openedAt = this.page
+      .context()
+      .waitForEvent('page')
+      .then((tab) =>
+        Promise.any([
+          tab.waitForEvent('download').then((download) => download.url()),
+          tab.waitForURL(/^blob:/).then(() => tab.url()),
+        ]).finally(() => tab.close()),
+      )
+    await this.page.getByRole('button', { name: 'View source PDF' }).click()
+    const url = await openedAt
+    const page = /^blob:.*#page=(\d+)$/.exec(url)
+    if (!page) throw new Error(`The source PDF opened without a page: ${url}`)
+    return Number(page[1])
   }
 
   async zoomIn() {
