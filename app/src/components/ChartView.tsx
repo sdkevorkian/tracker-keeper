@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { DisplayStyle } from '../view/cellLook.ts'
 import { drawChart } from '../view/draw.ts'
 import { pageForView } from '../view/sourcePage.ts'
 import { fitChart, panBy, visibleCells, zoomAt, type Size, type Viewport } from '../view/viewport.ts'
@@ -6,6 +7,8 @@ import type { Chart } from '../workspace/chart.ts'
 
 /** How much one pixel of wheel scroll zooms. */
 const WHEEL_ZOOM = 0.002
+
+const DISPLAY_STYLES: DisplayStyle[] = ['symbols only', 'color blocks', 'color with symbols']
 
 interface ChartViewProps {
   chart: Chart
@@ -21,6 +24,8 @@ export function ChartView({ chart, onViewSourcePdf }: ChartViewProps) {
   const [movedViewport, setViewport] = useState<Viewport>()
   const viewport = movedViewport ?? fitChart(size, chart)
   const drag = useRef<{ x: number; y: number }>(undefined)
+  // Kept per project once projects exist; for now each opening starts in color with symbols.
+  const [style, setStyle] = useState<DisplayStyle>('color with symbols')
 
   // Keep the canvas's pixels matched to its CSS size.
   useEffect(() => {
@@ -54,12 +59,12 @@ export function ChartView({ chart, onViewSourcePdf }: ChartViewProps) {
     const context = element.getContext('2d')
     if (!context) return
     context.setTransform(scale, 0, 0, scale, 0, 0)
-    drawChart(context, chart, viewport, size)
-  }, [chart, viewport, size])
+    drawChart(context, chart, viewport, size, style)
+  }, [chart, viewport, size, style])
 
   const { left, top, right, bottom } = visibleCells(viewport, size, chart)
   const label =
-    `Chart, ${chart.width} by ${chart.height} stitches, ` +
+    `Chart, ${chart.width} by ${chart.height} stitches, in ${style}, ` +
     `showing stitches ${left + 1} to ${right} across and ${top + 1} to ${bottom} down`
 
   return (
@@ -72,6 +77,21 @@ export function ChartView({ chart, onViewSourcePdf }: ChartViewProps) {
         >
           View source PDF
         </button>
+        <fieldset className="display-styles">
+          <legend>Display style</legend>
+          {DISPLAY_STYLES.map((option) => (
+            <label key={option}>
+              <input
+                type="radio"
+                name="display-style"
+                value={option}
+                checked={style === option}
+                onChange={() => setStyle(option)}
+              />
+              {option[0].toUpperCase() + option.slice(1)}
+            </label>
+          ))}
+        </fieldset>
       </div>
       <canvas
         ref={canvas}

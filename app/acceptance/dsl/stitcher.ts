@@ -12,6 +12,7 @@ import {
   type SymbolDescription,
 } from '../../tests/support/chartPdf.ts'
 import type {
+  DisplayStyle,
   Driver,
   ShownChart,
   ShownImportIssue,
@@ -266,6 +267,14 @@ export class Stitcher {
 
   async seesNoImportIssues() {
     deepStrictEqual(await this.driver.importIssues(), [])
+  }
+
+  async switchesDisplayStyle(style: DisplayStyle) {
+    await this.driver.switchDisplayStyle(style)
+  }
+
+  async seesDisplayStyle(expected: DisplayStyle) {
+    deepStrictEqual(await this.driver.displayStyle(), expected)
   }
 
   async viewsSourcePdf() {

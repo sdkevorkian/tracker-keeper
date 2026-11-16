@@ -3,7 +3,15 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, type Page } from '@playwright/test'
-import type { Capability, Driver, ShownChart, ShownImportIssue, ShownStitches, SourcePagePlacement } from './driver.ts'
+import type {
+  Capability,
+  DisplayStyle,
+  Driver,
+  ShownChart,
+  ShownImportIssue,
+  ShownStitches,
+  SourcePagePlacement,
+} from './driver.ts'
 
 /** The page, with the long tasks seen since the last import began. */
 type WatchedWindow = Window & { longTasks?: number[] }
@@ -18,6 +26,7 @@ export class BrowserDriver implements Driver {
     'chart library',
     'chart pages',
     'view source PDF',
+    'display styles',
   ])
 
   private page: Page
@@ -106,6 +115,18 @@ export class BrowserDriver implements Driver {
 
   async importIssues(): Promise<ShownImportIssue[]> {
     throw new Error("The app doesn't show import issues yet")
+  }
+
+  async displayStyle() {
+    const label = await this.chartLabel()
+    const style = /, in (symbols only|color blocks|color with symbols),/.exec(label)
+    if (!style) throw new Error(`The chart's label doesn't say how it's drawn: "${label}"`)
+    return style[1] as DisplayStyle
+  }
+
+  async switchDisplayStyle(style: DisplayStyle) {
+    await this.page.getByRole('group', { name: 'Display style' }).getByRole('radio', { name: style }).check()
+    await expect(this.chart()).toHaveAttribute('aria-label', new RegExp(`, in ${style},`))
   }
 
   async viewSourcePdf() {

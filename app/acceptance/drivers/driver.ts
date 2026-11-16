@@ -22,6 +22,8 @@ export type Capability =
   | 'chart pages'
   /** Opening the source PDF at the page that covers the view. */
   | 'view source PDF'
+  /** Switching how the chart is drawn, and reading which way it is. */
+  | 'display styles'
 
 /** Stitches the stitcher can see, numbered from 1 like a printed chart's margins. Ends are inclusive. */
 export interface ShownStitches {
@@ -45,6 +47,9 @@ export interface ShownChart extends Size {
   /** Each legend entry's thread, such as 'DMC 310', and how many of the chart's stitches use it. Left out when a case doesn't care. */
   legend?: { thread: string; stitches: number }[]
 }
+
+/** How the app draws a chart on screen. */
+export type DisplayStyle = 'symbols only' | 'color blocks' | 'color with symbols'
 
 /** One stitch: its column and row, numbered from 1 like a printed chart's margins. */
 export type Stitch = [across: number, down: number]
@@ -98,6 +103,9 @@ export interface Driver {
   chartTitle(): Promise<string | undefined>
   /** The import issues of the chart the stitcher is looking at. */
   importIssues(): Promise<ShownImportIssue[]>
+  /** How the chart on screen is drawn. */
+  displayStyle(): Promise<DisplayStyle>
+  switchDisplayStyle(style: DisplayStyle): Promise<void>
   /** Opens the source PDF from the chart view, returning the page it opened at. */
   viewSourcePdf(): Promise<number>
   zoomIn(): Promise<void>

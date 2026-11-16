@@ -50,6 +50,28 @@ h2 {
   margin-top: 24px;
 }
 
+.display-styles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.display-styles legend {
+  float: left;
+  margin-right: 4px;
+  font-weight: 600;
+}
+
+.display-styles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .chart-view {
   display: block;
   width: 100%;
