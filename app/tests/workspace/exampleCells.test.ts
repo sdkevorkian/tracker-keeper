@@ -21,8 +21,11 @@ const red: LegendEntry = { symbol: '^', thread: { brand: 'DMC', code: '321' }, n
 
 // The builder prints a chart's grid from 36 points in from the page's left and top, on a 612 × 792 point page.
 
-test("each legend entry keeps the first cell the source PDF prints its symbol in, so it can be shown as printed", async () => {
-  const chart = await importChart([{ type: 'chart', cell: { width: 10, height: 10 }, grid: ['.#', '^#'] }], [black, red])
+test('each legend entry keeps the first cell the source PDF prints its symbol in, so it can be shown as printed', async () => {
+  const chart = await importChart(
+    [{ type: 'chart', cell: { width: 10, height: 10 }, grid: ['.#', '^#'] }],
+    [black, red],
+  )
 
   expect(chart.legend.map(({ example }) => example)).toEqual([
     { page: 1, box: { x0: 46, y0: 746, x1: 56, y1: 756 } },
@@ -35,7 +38,15 @@ test("a symbol first printed on a later page of a multi-page chart keeps that pa
   // Ten rows, so the margins number both pages and they join.
   const grid = ['#'.repeat(12) + '^' + '#'.repeat(11), ...Array<string>(9).fill('#'.repeat(24))]
   const chart = await importChart(
-    [{ type: 'chart', cell: { width: 10, height: 10 }, grid, pageSize: { width: 12, height: 10 }, marginNumbers: true }],
+    [
+      {
+        type: 'chart',
+        cell: { width: 10, height: 10 },
+        grid,
+        pageSize: { width: 12, height: 10 },
+        marginNumbers: true,
+      },
+    ],
     [{ ...black, count: 239 }, red],
   )
 

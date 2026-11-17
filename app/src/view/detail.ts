@@ -1,5 +1,5 @@
 // How much the canvas draws at each zoom: color only when zoomed out, then
-// symbols, then grid lines. Plain functions, so they're tested without pixels.
+// symbols and grid lines together. Plain functions, so they're tested without pixels.
 
 /** What the canvas draws on top of each cell's color. */
 export interface Detail {
@@ -7,14 +7,13 @@ export interface Detail {
   gridLines: boolean
 }
 
-/** Below this many pixels a stitch, symbols are too small to read. */
-const MIN_SYMBOL_CELL_SIZE = 10
-/** Below this many pixels a stitch, grid lines would crowd out the cells. */
-const MIN_GRID_CELL_SIZE = 20
+/** Below this many pixels a stitch, symbols are too small to read, and grid lines would crowd out the cells. */
+const MIN_DETAIL_CELL_SIZE = 10
 
-/** What shows when a stitch is drawn `cellSize` pixels across. */
+/** What shows when a stitch is drawn `cellSize` pixels across. Grid lines come with the symbols, so stitches can be counted. */
 export function detailAt(cellSize: number): Detail {
-  return { symbols: cellSize >= MIN_SYMBOL_CELL_SIZE, gridLines: cellSize >= MIN_GRID_CELL_SIZE }
+  const detailed = cellSize >= MIN_DETAIL_CELL_SIZE
+  return { symbols: detailed, gridLines: detailed }
 }
 
 /** Grid lines are counted from the chart's top or left edge, so line 0 is its edge. */

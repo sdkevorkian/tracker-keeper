@@ -5,13 +5,9 @@ test('zoomed out, only color shows', () => {
   expect(detailAt(9)).toEqual({ symbols: false, gridLines: false })
 })
 
-test('from 10 pixels a stitch, symbols show', () => {
-  expect(detailAt(10)).toEqual({ symbols: true, gridLines: false })
-  expect(detailAt(19)).toEqual({ symbols: true, gridLines: false })
-})
-
-test('from 20 pixels a stitch, grid lines show too', () => {
-  expect(detailAt(20)).toEqual({ symbols: true, gridLines: true })
+test('from 10 pixels a stitch, symbols show, and grid lines with them so stitches can be counted', () => {
+  expect(detailAt(10)).toEqual({ symbols: true, gridLines: true })
+  expect(detailAt(19)).toEqual({ symbols: true, gridLines: true })
 })
 
 test("every 10th grid line, counted from the chart's edge, is thicker", () => {

@@ -24,7 +24,7 @@ export default function displayStyleCases(test: AcceptanceTest) {
   )
 
   test(
-    "symbols are drawn as the source PDF prints them, and a built-in symbol stands in for an entry the chart never prints",
+    'symbols are drawn as the source PDF prints them, and a built-in symbol stands in for an entry the chart never prints',
     { needs: ['import', 'symbol images'] },
     async ({ stitcher }) => {
       // The legend lists '^', which no stitch uses, so the PDF prints no cell to cut its symbol from.
