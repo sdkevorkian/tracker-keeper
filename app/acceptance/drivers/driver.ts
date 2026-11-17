@@ -117,6 +117,11 @@ export interface Driver {
   switchDisplayStyle(style: DisplayStyle): Promise<void>
   /** Opens the source PDF from the chart view, returning the page it opened at. */
   viewSourcePdf(): Promise<number>
+  /**
+   * Zooms all the way in and back out, dragging the chart between, as a stitcher looking around would.
+   * Returns the longest the page was blocked meanwhile, in milliseconds.
+   */
+  panAndZoomAround(): Promise<number>
   zoomIn(): Promise<void>
   /** Drags the chart left, which brings stitches from its right into view. */
   dragChartLeft(): Promise<void>

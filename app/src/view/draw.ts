@@ -25,10 +25,43 @@ const GRID: Record<GridLineWeight, { color: string; width: number }> = {
   thick: { color: 'rgba(0, 0, 0, 0.6)', width: 2 },
 }
 
+/** Each chart's colors, one pixel a stitch, made the first time it's drawn zoomed out. */
+const colorImages = new WeakMap<Chart, HTMLCanvasElement>()
+
+/**
+ * The chart as it looks zoomed out, one pixel a stitch. Zoomed out, every display style
+ * shows color only, so one image serves them all, and drawing it scaled is one call
+ * however many stitches are on screen.
+ */
+function colorImage(chart: Chart) {
+  let image = colorImages.get(chart)
+  if (image) return image
+  const zoomedOut = { symbols: false, gridLines: false }
+  // Each legend entry's color once, as [r, g, b]; index 0 is a blank cell.
+  const colors = [undefined, ...chart.legend].map((entry) => {
+    const { fill } = cellLook(entry, 'color blocks', zoomedOut)
+    return [1, 3, 5].map((start) => parseInt(fill.slice(start, start + 2), 16))
+  })
+  const pixels = new ImageData(chart.width, chart.height)
+  chart.cells.forEach((entry, i) => pixels.data.set([...(colors[entry] ?? colors[0]), 255], i * 4))
+  image = document.createElement('canvas')
+  image.width = chart.width
+  image.height = chart.height
+  image.getContext('2d')!.putImageData(pixels, 0, 0)
+  colorImages.set(chart, image)
+  return image
+}
+
 /** Each cell as its display style draws it, with its symbol as printed where the source PDF gave one. */
 const cellsLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, cells, style, symbols }) => {
   const { left, top, right, bottom } = cells
   const detail = detailAt(cellSize)
+  if (!detail.symbols) {
+    // Sharp-edged stitches, not a blur between them.
+    context.imageSmoothingEnabled = false
+    context.drawImage(colorImage(chart), -x * cellSize, -y * cellSize, chart.width * cellSize, chart.height * cellSize)
+    return
+  }
   context.font = `${Math.round(cellSize * 0.6)}px system-ui, sans-serif`
   context.textAlign = 'center'
   context.textBaseline = 'middle'

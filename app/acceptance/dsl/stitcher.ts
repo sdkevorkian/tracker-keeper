@@ -67,6 +67,12 @@ export type ChartSpec =
 const LONGEST_UNNOTICED_BLOCK_MS = 200
 
 /**
+ * Longer than this and panning or zooming stutters. The browser reports only tasks
+ * longer than this, so any it reports at all is a stutter.
+ */
+const LONGEST_SMOOTH_FRAME_MS = 50
+
+/**
  * A fixed pseudo-random pattern, so rows and columns repeated between pages
  * match only where they really repeat.
  */
@@ -197,6 +203,8 @@ export class Stitcher {
   private shownBefore?: ShownStitches
   /** The page the source PDF last opened at. */
   private sourcePdfPage?: number
+  /** The longest the page was blocked during the last pan and zoom around the chart. */
+  private longestPanOrZoomBlock?: number
 
   constructor(driver: Driver) {
     this.driver = driver
@@ -312,6 +320,15 @@ export class Stitcher {
     const now = await this.driver.shownStitches()
     ok(now.across[0] > before.across[0], `Columns shown went from ${before.across} to ${now.across}`)
     deepStrictEqual(now.down, before.down)
+  }
+
+  async pansAndZoomsAroundTheChart() {
+    this.longestPanOrZoomBlock = await this.driver.panAndZoomAround()
+  }
+
+  async sawPanningAndZoomingStaySmooth() {
+    const longest = this.longestPanOrZoomBlock!
+    ok(longest <= LONGEST_SMOOTH_FRAME_MS, `Panning and zooming blocked the page for ${Math.round(longest)} ms`)
   }
 
   async couldKeepUsingTheAppWhileItImported() {

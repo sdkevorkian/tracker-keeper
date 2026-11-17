@@ -13,6 +13,9 @@ import type {
   SourcePagePlacement,
 } from './driver.ts'
 
+/** How long the app lets an import run before giving up on it. */
+const IMPORT_TIMEOUT_MS = 60_000
+
 /** The page, with the long tasks seen since the last import began. */
 type WatchedWindow = Window & { longTasks?: number[] }
 
@@ -56,7 +59,8 @@ export class BrowserDriver implements Driver {
     const fileChooser = this.page.waitForEvent('filechooser')
     await this.page.getByRole('button', { name: 'Import' }).click()
     await (await fileChooser).setFiles(file)
-    await expect(this.chart()).toBeVisible()
+    // As long as the app lets an import run, so a large chart is waited for.
+    await expect(this.chart()).toBeVisible({ timeout: IMPORT_TIMEOUT_MS })
   }
 
   async reload() {
@@ -156,6 +160,38 @@ export class BrowserDriver implements Driver {
     const page = /^blob:.*#page=(\d+)$/.exec(url)
     if (!page) throw new Error(`The source PDF opened without a page: ${url}`)
     return Number(page[1])
+  }
+
+  async panAndZoomAround() {
+    await this.page.evaluate(() => {
+      const blocks: number[] = ((window as WatchedWindow).longTasks = [])
+      new PerformanceObserver((list) => blocks.push(...list.getEntries().map(({ duration }) => duration))).observe({
+        type: 'longtask',
+      })
+    })
+    const { x, y } = await this.chartCentre()
+    await this.page.mouse.move(x, y)
+    const zoom = async (deltaY: number) => {
+      for (let step = 0; step < 12; step++) {
+        await this.page.mouse.wheel(0, deltaY)
+        // Let each zoom draw before the next, as a stitcher's scrolling would.
+        await this.page.evaluate(() => new Promise(requestAnimationFrame))
+      }
+    }
+    const drag = async (dx: number, dy: number) => {
+      await this.page.mouse.down()
+      await this.page.mouse.move(x + dx, y + dy, { steps: 20 })
+      await this.page.mouse.up()
+      await this.page.mouse.move(x, y)
+    }
+    // From the whole chart, in to symbols, across, and back out to the whole chart.
+    await zoom(-300)
+    await drag(-300, -200)
+    await zoom(300)
+    await drag(300, 200)
+    // Long tasks are reported after they end.
+    await this.page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 100)))
+    return this.page.evaluate(() => Math.max(0, ...((window as WatchedWindow).longTasks ?? [])))
   }
 
   async zoomIn() {
