@@ -36,4 +36,20 @@ export default function importCases(test: AcceptanceTest) {
       await stitcher.seesStitchesFurtherRightThanBefore()
     },
   )
+
+  test(
+    'panning and zooming stay smooth on a chart of 500 × 700 stitches',
+    { needs: ['import', 'pan and zoom', 'responsiveness'], slow: true },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({
+        size: { width: 500, height: 700 },
+        printedOn: { pagesAcross: 10, pagesDown: 10 },
+        marginNumbers: true,
+      })
+
+      await stitcher.pansAndZoomsAroundTheChart()
+
+      await stitcher.sawPanningAndZoomingStaySmooth()
+    },
+  )
 }

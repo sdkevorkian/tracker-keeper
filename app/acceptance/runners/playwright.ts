@@ -5,8 +5,9 @@ import { skipReason } from '../dsl/missingCapabilities.ts'
 import { Stitcher } from '../dsl/stitcher.ts'
 import { BrowserDriver } from '../drivers/browser.ts'
 
-export const playwrightAcceptanceTest: AcceptanceTest = (name, { needs }, body) => {
+export const playwrightAcceptanceTest: AcceptanceTest = (name, { needs, slow }, body) => {
   test(name, async ({ page }) => {
+    test.slow(slow === true)
     const driver = new BrowserDriver(page)
     await driver.open()
     const reason = skipReason(driver, needs)

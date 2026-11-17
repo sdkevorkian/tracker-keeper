@@ -6,6 +6,8 @@ import type { Stitcher } from './stitcher.ts'
 export interface CaseOptions {
   /** Capabilities the case needs. It is skipped for drivers that lack any of them. */
   needs: Capability[]
+  /** The case imports a chart large enough to take a while, so runners give it longer. */
+  slow?: boolean
 }
 
 export type AcceptanceTest = (

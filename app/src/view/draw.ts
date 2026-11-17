@@ -1,65 +1,131 @@
 // Draws a chart on a canvas in layers, bottom to top. Later layers (progress,
 // adjustment markers, highlights) go on top of these.
 import type { Chart } from '../workspace/chart.ts'
+import { cellLook, type DisplayStyle } from './cellLook.ts'
+import { detailAt, gridLineWeight, type GridLineWeight } from './detail.ts'
+import { fallbackSymbol } from './fallbackSymbol.ts'
+import { SYMBOL_INSET, type SymbolImages } from './symbolImages.ts'
 import { visibleCells, type CellRange, type Size, type Viewport } from './viewport.ts'
 
-type Layer = (context: CanvasRenderingContext2D, chart: Chart, viewport: Viewport, cells: CellRange) => void
+/** What every layer draws from. */
+interface Scene {
+  chart: Chart
+  viewport: Viewport
+  /** The cells at least partly on screen; nothing outside them is drawn. */
+  cells: CellRange
+  style: DisplayStyle
+  /** Symbols cut from the source PDF. An entry without one is drawn with a built-in symbol. */
+  symbols: SymbolImages
+}
 
-const BLANK = '#ffffff'
-const NO_COLOR = '#d9d9d9'
-const GRID = 'rgba(0, 0, 0, 0.25)'
+type Layer = (context: CanvasRenderingContext2D, scene: Scene) => void
 
-/** Below this many pixels a stitch, symbols are too small to read. */
-const MIN_SYMBOL_CELL_SIZE = 10
+const GRID: Record<GridLineWeight, { color: string; width: number }> = {
+  thin: { color: 'rgba(0, 0, 0, 0.25)', width: 1 },
+  thick: { color: 'rgba(0, 0, 0, 0.6)', width: 2 },
+}
 
-/** Each cell's color, with its legend entry's number standing in for the symbol until #18 adds symbol images. */
-const cellsLayer: Layer = (context, chart, { x, y, cellSize }, { left, top, right, bottom }) => {
+/** Each chart's colors, one pixel a stitch, made the first time it's drawn zoomed out. */
+const colorImages = new WeakMap<Chart, HTMLCanvasElement>()
+
+/**
+ * The chart as it looks zoomed out, one pixel a stitch. Zoomed out, every display style
+ * shows color only, so one image serves them all, and drawing it scaled is one call
+ * however many stitches are on screen.
+ */
+function colorImage(chart: Chart) {
+  let image = colorImages.get(chart)
+  if (image) return image
+  const zoomedOut = { symbols: false, gridLines: false }
+  // Each legend entry's color once, as [r, g, b]; index 0 is a blank cell.
+  const colors = [undefined, ...chart.legend].map((entry) => {
+    const { fill } = cellLook(entry, 'color blocks', zoomedOut)
+    return [1, 3, 5].map((start) => parseInt(fill.slice(start, start + 2), 16))
+  })
+  const pixels = new ImageData(chart.width, chart.height)
+  chart.cells.forEach((entry, i) => pixels.data.set([...(colors[entry] ?? colors[0]), 255], i * 4))
+  image = document.createElement('canvas')
+  image.width = chart.width
+  image.height = chart.height
+  image.getContext('2d')!.putImageData(pixels, 0, 0)
+  colorImages.set(chart, image)
+  return image
+}
+
+/** Each cell as its display style draws it, with its symbol as printed where the source PDF gave one. */
+const cellsLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, cells, style, symbols }) => {
+  const { left, top, right, bottom } = cells
+  const detail = detailAt(cellSize)
+  if (!detail.symbols) {
+    // Sharp-edged stitches, not a blur between them.
+    context.imageSmoothingEnabled = false
+    context.drawImage(colorImage(chart), -x * cellSize, -y * cellSize, chart.width * cellSize, chart.height * cellSize)
+    return
+  }
   context.font = `${Math.round(cellSize * 0.6)}px system-ui, sans-serif`
   context.textAlign = 'center'
   context.textBaseline = 'middle'
   for (let row = top; row < bottom; row++) {
     for (let column = left; column < right; column++) {
       const entry = chart.cells[row * chart.width + column]
-      const color = entry === 0 ? BLANK : (chart.legend[entry - 1]?.color ?? NO_COLOR)
+      const { fill, symbol } = cellLook(entry === 0 ? undefined : chart.legend[entry - 1], style, detail)
       const px = (column - x) * cellSize
       const py = (row - y) * cellSize
-      context.fillStyle = color
+      context.fillStyle = fill
       context.fillRect(px, py, cellSize, cellSize)
-      if (entry !== 0 && cellSize >= MIN_SYMBOL_CELL_SIZE) {
-        context.fillStyle = isDark(color) ? '#ffffff' : '#000000'
-        context.fillText(String(entry), px + cellSize / 2, py + cellSize / 2)
+      if (!symbol) continue
+      const image = symbols.get(entry)
+      if (image) {
+        // Cut inset from the cell's grid lines, so drawn back at the same inset.
+        const inset = cellSize * SYMBOL_INSET
+        const drawn = cellSize - 2 * inset
+        context.drawImage(symbol === '#ffffff' ? image.white : image.black, px + inset, py + inset, drawn, drawn)
+      } else {
+        context.fillStyle = symbol
+        context.fillText(fallbackSymbol(entry), px + cellSize / 2, py + cellSize / 2)
       }
     }
   }
 }
 
-const gridLayer: Layer = (context, _chart, { x, y, cellSize }, { left, top, right, bottom }) => {
-  context.strokeStyle = GRID
-  context.lineWidth = 1
-  context.beginPath()
-  for (let column = left; column <= right; column++) {
-    const px = Math.round((column - x) * cellSize) + 0.5
-    context.moveTo(px, (top - y) * cellSize)
-    context.lineTo(px, (bottom - y) * cellSize)
+/** Thin lines first, so the thick lines every 10 stitches draw over them where they cross. */
+const gridLayer: Layer = (context, { viewport: { x, y, cellSize }, cells: { left, top, right, bottom } }) => {
+  if (!detailAt(cellSize).gridLines) return
+  for (const weight of ['thin', 'thick'] as const) {
+    const { color, width } = GRID[weight]
+    // Odd widths sit on half pixels to stay sharp.
+    const offset = width % 2 ? 0.5 : 0
+    context.strokeStyle = color
+    context.lineWidth = width
+    context.beginPath()
+    for (let column = left; column <= right; column++) {
+      if (gridLineWeight(column) !== weight) continue
+      const px = Math.round((column - x) * cellSize) + offset
+      context.moveTo(px, (top - y) * cellSize)
+      context.lineTo(px, (bottom - y) * cellSize)
+    }
+    for (let row = top; row <= bottom; row++) {
+      if (gridLineWeight(row) !== weight) continue
+      const py = Math.round((row - y) * cellSize) + offset
+      context.moveTo((left - x) * cellSize, py)
+      context.lineTo((right - x) * cellSize, py)
+    }
+    context.stroke()
   }
-  for (let row = top; row <= bottom; row++) {
-    const py = Math.round((row - y) * cellSize) + 0.5
-    context.moveTo((left - x) * cellSize, py)
-    context.lineTo((right - x) * cellSize, py)
-  }
-  context.stroke()
 }
 
 const LAYERS: Layer[] = [cellsLayer, gridLayer]
 
-/** Draws the visible part of `chart` on a canvas `size` CSS pixels across. */
-export function drawChart(context: CanvasRenderingContext2D, chart: Chart, viewport: Viewport, size: Size) {
+/** Draws the visible part of `chart` in `style` on a canvas `size` CSS pixels across. */
+export function drawChart(
+  context: CanvasRenderingContext2D,
+  chart: Chart,
+  viewport: Viewport,
+  size: Size,
+  style: DisplayStyle,
+  symbols: SymbolImages,
+) {
   context.clearRect(0, 0, size.width, size.height)
-  const cells = visibleCells(viewport, size, chart)
-  for (const layer of LAYERS) layer(context, chart, viewport, cells)
-}
-
-function isDark(color: string) {
-  const [r, g, b] = [1, 3, 5].map((start) => parseInt(color.slice(start, start + 2), 16))
-  return 0.299 * r + 0.587 * g + 0.114 * b < 128
+  const scene = { chart, viewport, cells: visibleCells(viewport, size, chart), style, symbols }
+  for (const layer of LAYERS) layer(context, scene)
 }

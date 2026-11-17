@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore, type ChangeEvent } from 'react'
+import { useCallback, useRef, useState, useSyncExternalStore, type ChangeEvent } from 'react'
 import type { Chart } from '../workspace/chart.ts'
 import { listCharts, type Workspace } from '../workspace/workspace.ts'
 import { ChartLibrary } from './ChartLibrary.tsx'
@@ -88,7 +88,7 @@ function App({ workspace }: { workspace: Workspace }) {
         )}
         {!importing &&
           (route.page === 'chart' ? (
-            <ChartPage chart={state.charts.get(route.chartId)} />
+            <ChartPage chart={state.charts.get(route.chartId)} workspace={workspace} />
           ) : (
             <ChartLibrary charts={listCharts(state)} />
           ))}
@@ -98,14 +98,47 @@ function App({ workspace }: { workspace: Workspace }) {
 }
 
 /** One chart's own page. `chart` is undefined when the page's chart isn't stored here. */
-function ChartPage({ chart }: { chart?: Chart }) {
+function ChartPage({ chart, workspace }: { chart?: Chart; workspace: Workspace }) {
+  const chartId = chart?.id
+  // The same function while the same chart is open, so its symbols are cut once.
+  const sourcePdf = useCallback(() => workspace.sourcePdf(chartId!), [workspace, chartId])
   return (
     <>
       <a className="button back-to-library" href={yourChartsHref}>
         Your charts
       </a>
-      {chart ? <ChartView key={chart.id} chart={chart} /> : <p>This chart isn't stored in this browser.</p>}
+      {chart ? (
+        <ChartView
+          key={chart.id}
+          chart={chart}
+          sourcePdf={sourcePdf}
+          onViewSourcePdf={(page) => openSourcePdf(sourcePdf, page)}
+        />
+      ) : (
+        <p>This chart isn't stored in this browser.</p>
+      )}
     </>
+  )
+}
+
+/** How long an opened source PDF's URL is kept before it's revoked; the tab has loaded it well before then. */
+const SOURCE_PDF_URL_LIFETIME_MS = 60_000
+
+/**
+ * Opens the source PDF in a new tab, in the browser's own PDF viewer, at `page`.
+ * The tab opens at once, inside the click, so popup blockers allow it; the PDF follows once it's read.
+ */
+function openSourcePdf(sourcePdf: () => Promise<Uint8Array>, page: number | undefined) {
+  const tab = window.open('', '_blank')
+  if (!tab) return
+  tab.opener = null
+  sourcePdf().then(
+    (bytes) => {
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
+      tab.location.href = page === undefined ? url : `${url}#page=${page}`
+      setTimeout(() => URL.revokeObjectURL(url), SOURCE_PDF_URL_LIFETIME_MS)
+    },
+    () => tab.close(),
   )
 }
 

@@ -68,12 +68,14 @@ test('the legend on a page stored turned 90° is read, each symbol with its thre
       threads: [{ brand: 'DMC', code: '310', name: 'Black', strands: 2 }],
       color: expect.any(String),
       printedCount: 4,
+      example: expect.any(Object),
     },
     {
       symbol: { font: 'StitchSymbols', code: 0x42 },
       threads: [{ brand: 'DMC', code: '321', name: 'Red', strands: 2 }],
       color: expect.any(String),
       printedCount: 4,
+      example: expect.any(Object),
     },
   ])
 })

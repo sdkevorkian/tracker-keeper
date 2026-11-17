@@ -20,6 +20,12 @@ export type Capability =
   | 'chart library'
   /** Each chart having a page of its own, which a reload stays on. */
   | 'chart pages'
+  /** Opening the source PDF at the page that covers the view. */
+  | 'view source PDF'
+  /** Switching how the chart is drawn, and reading which way it is. */
+  | 'display styles'
+  /** Reading whether each legend entry's symbol is drawn as printed or built in. */
+  | 'symbol images'
 
 /** Stitches the stitcher can see, numbered from 1 like a printed chart's margins. Ends are inclusive. */
 export interface ShownStitches {
@@ -42,6 +48,14 @@ export interface Size {
 export interface ShownChart extends Size {
   /** Each legend entry's thread, such as 'DMC 310', and how many of the chart's stitches use it. Left out when a case doesn't care. */
   legend?: { thread: string; stitches: number }[]
+}
+
+/** How the app draws a chart on screen. */
+export type DisplayStyle = 'symbols only' | 'color blocks' | 'color with symbols'
+
+export interface ShownSymbols {
+  asPrinted: number
+  builtIn: number
 }
 
 /** One stitch: its column and row, numbered from 1 like a printed chart's margins. */
@@ -96,6 +110,18 @@ export interface Driver {
   chartTitle(): Promise<string | undefined>
   /** The import issues of the chart the stitcher is looking at. */
   importIssues(): Promise<ShownImportIssue[]>
+  /** How many legend entries of the chart on screen have their symbol drawn as the source PDF prints it, and how many a built-in one. */
+  shownSymbols(): Promise<ShownSymbols>
+  /** How the chart on screen is drawn. */
+  displayStyle(): Promise<DisplayStyle>
+  switchDisplayStyle(style: DisplayStyle): Promise<void>
+  /** Opens the source PDF from the chart view, returning the page it opened at. */
+  viewSourcePdf(): Promise<number>
+  /**
+   * Zooms all the way in and back out, dragging the chart between, as a stitcher looking around would.
+   * Returns the longest the page was blocked meanwhile, in milliseconds.
+   */
+  panAndZoomAround(): Promise<number>
   zoomIn(): Promise<void>
   /** Drags the chart left, which brings stitches from its right into view. */
   dragChartLeft(): Promise<void>

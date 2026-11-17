@@ -154,6 +154,26 @@ export class WorkspaceDriver implements Driver {
     throw new Error('The Workspace driver has no view of the chart')
   }
 
+  async shownSymbols(): Promise<never> {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
+  async displayStyle(): Promise<never> {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
+  async switchDisplayStyle() {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
+  async viewSourcePdf(): Promise<number> {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
+  async panAndZoomAround(): Promise<number> {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
   async zoomIn() {
     throw new Error('The Workspace driver has no view of the chart')
   }

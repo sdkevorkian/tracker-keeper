@@ -12,11 +12,13 @@ import {
   type SymbolDescription,
 } from '../../tests/support/chartPdf.ts'
 import type {
+  DisplayStyle,
   Driver,
   ShownChart,
   ShownImportIssue,
   ShownLegendEntry,
   ShownStitches,
+  ShownSymbols,
   SourcePagePlacement,
 } from '../drivers/driver.ts'
 
@@ -63,6 +65,12 @@ export type ChartSpec =
 
 /** Longer than this and a stitcher notices the page freeze. */
 const LONGEST_UNNOTICED_BLOCK_MS = 200
+
+/**
+ * Longer than this and panning or zooming stutters. The browser reports only tasks
+ * longer than this, so any it reports at all is a stutter.
+ */
+const LONGEST_SMOOTH_FRAME_MS = 50
 
 /**
  * A fixed pseudo-random pattern, so rows and columns repeated between pages
@@ -193,6 +201,10 @@ export class Stitcher {
   private driver: Driver
   /** What was on screen before the last zoom or drag. */
   private shownBefore?: ShownStitches
+  /** The page the source PDF last opened at. */
+  private sourcePdfPage?: number
+  /** The longest the page was blocked during the last pan and zoom around the chart. */
+  private longestPanOrZoomBlock?: number
 
   constructor(driver: Driver) {
     this.driver = driver
@@ -266,6 +278,26 @@ export class Stitcher {
     deepStrictEqual(await this.driver.importIssues(), [])
   }
 
+  async seesSymbols(expected: ShownSymbols) {
+    deepStrictEqual(await this.driver.shownSymbols(), expected)
+  }
+
+  async switchesDisplayStyle(style: DisplayStyle) {
+    await this.driver.switchDisplayStyle(style)
+  }
+
+  async seesDisplayStyle(expected: DisplayStyle) {
+    deepStrictEqual(await this.driver.displayStyle(), expected)
+  }
+
+  async viewsSourcePdf() {
+    this.sourcePdfPage = await this.driver.viewSourcePdf()
+  }
+
+  async seesSourcePdfOpenAtPage(expected: number) {
+    deepStrictEqual(this.sourcePdfPage, expected)
+  }
+
   async zoomsIn() {
     this.shownBefore = await this.driver.shownStitches()
     await this.driver.zoomIn()
@@ -288,6 +320,15 @@ export class Stitcher {
     const now = await this.driver.shownStitches()
     ok(now.across[0] > before.across[0], `Columns shown went from ${before.across} to ${now.across}`)
     deepStrictEqual(now.down, before.down)
+  }
+
+  async pansAndZoomsAroundTheChart() {
+    this.longestPanOrZoomBlock = await this.driver.panAndZoomAround()
+  }
+
+  async sawPanningAndZoomingStaySmooth() {
+    const longest = this.longestPanOrZoomBlock!
+    ok(longest <= LONGEST_SMOOTH_FRAME_MS, `Panning and zooming blocked the page for ${Math.round(longest)} ms`)
   }
 
   async couldKeepUsingTheAppWhileItImported() {
