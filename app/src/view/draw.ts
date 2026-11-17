@@ -3,6 +3,8 @@
 import type { Chart } from '../workspace/chart.ts'
 import { cellLook, type DisplayStyle } from './cellLook.ts'
 import { detailAt, gridLineWeight, type GridLineWeight } from './detail.ts'
+import { fallbackSymbol } from './fallbackSymbol.ts'
+import { SYMBOL_INSET, type SymbolImages } from './symbolImages.ts'
 import { visibleCells, type CellRange, type Size, type Viewport } from './viewport.ts'
 
 /** What every layer draws from. */
@@ -12,6 +14,8 @@ interface Scene {
   /** The cells at least partly on screen; nothing outside them is drawn. */
   cells: CellRange
   style: DisplayStyle
+  /** Symbols cut from the source PDF. An entry without one is drawn with a built-in symbol. */
+  symbols: SymbolImages
 }
 
 type Layer = (context: CanvasRenderingContext2D, scene: Scene) => void
@@ -21,8 +25,8 @@ const GRID: Record<GridLineWeight, { color: string; width: number }> = {
   thick: { color: 'rgba(0, 0, 0, 0.6)', width: 2 },
 }
 
-/** Each cell as its display style draws it, with its legend entry's number standing in for the symbol until symbol images come. */
-const cellsLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, cells, style }) => {
+/** Each cell as its display style draws it, with its symbol as printed where the source PDF gave one. */
+const cellsLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, cells, style, symbols }) => {
   const { left, top, right, bottom } = cells
   const detail = detailAt(cellSize)
   context.font = `${Math.round(cellSize * 0.6)}px system-ui, sans-serif`
@@ -36,9 +40,16 @@ const cellsLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, cells
       const py = (row - y) * cellSize
       context.fillStyle = fill
       context.fillRect(px, py, cellSize, cellSize)
-      if (symbol) {
+      if (!symbol) continue
+      const image = symbols.get(entry)
+      if (image) {
+        // Cut inset from the cell's grid lines, so drawn back at the same inset.
+        const inset = cellSize * SYMBOL_INSET
+        const drawn = cellSize - 2 * inset
+        context.drawImage(symbol === '#ffffff' ? image.white : image.black, px + inset, py + inset, drawn, drawn)
+      } else {
         context.fillStyle = symbol
-        context.fillText(String(entry), px + cellSize / 2, py + cellSize / 2)
+        context.fillText(fallbackSymbol(entry), px + cellSize / 2, py + cellSize / 2)
       }
     }
   }
@@ -79,8 +90,9 @@ export function drawChart(
   viewport: Viewport,
   size: Size,
   style: DisplayStyle,
+  symbols: SymbolImages,
 ) {
   context.clearRect(0, 0, size.width, size.height)
-  const scene = { chart, viewport, cells: visibleCells(viewport, size, chart), style }
+  const scene = { chart, viewport, cells: visibleCells(viewport, size, chart), style, symbols }
   for (const layer of LAYERS) layer(context, scene)
 }

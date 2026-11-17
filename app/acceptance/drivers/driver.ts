@@ -24,6 +24,8 @@ export type Capability =
   | 'view source PDF'
   /** Switching how the chart is drawn, and reading which way it is. */
   | 'display styles'
+  /** Reading whether each legend entry's symbol is drawn as printed or built in. */
+  | 'symbol images'
 
 /** Stitches the stitcher can see, numbered from 1 like a printed chart's margins. Ends are inclusive. */
 export interface ShownStitches {
@@ -50,6 +52,11 @@ export interface ShownChart extends Size {
 
 /** How the app draws a chart on screen. */
 export type DisplayStyle = 'symbols only' | 'color blocks' | 'color with symbols'
+
+export interface ShownSymbols {
+  asPrinted: number
+  builtIn: number
+}
 
 /** One stitch: its column and row, numbered from 1 like a printed chart's margins. */
 export type Stitch = [across: number, down: number]
@@ -103,6 +110,8 @@ export interface Driver {
   chartTitle(): Promise<string | undefined>
   /** The import issues of the chart the stitcher is looking at. */
   importIssues(): Promise<ShownImportIssue[]>
+  /** How many legend entries of the chart on screen have their symbol drawn as the source PDF prints it, and how many a built-in one. */
+  shownSymbols(): Promise<ShownSymbols>
   /** How the chart on screen is drawn. */
   displayStyle(): Promise<DisplayStyle>
   switchDisplayStyle(style: DisplayStyle): Promise<void>

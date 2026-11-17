@@ -14,6 +14,14 @@ export interface Thread {
   strands?: number
 }
 
+/** A cell of the source PDF, so what the designer printed there can be shown as printed. */
+export interface ExampleCell {
+  /** The page's number in the source PDF, from 1. */
+  page: number
+  /** In points, on the page turned upright, y up. */
+  box: { x0: number; y0: number; x1: number; y1: number }
+}
+
 export interface LegendEntry {
   symbol: SymbolKey
   /** More than one thread makes a blend. */
@@ -22,6 +30,8 @@ export interface LegendEntry {
   color?: string
   /** The stitch count the legend prints, or undefined when it prints none. */
   printedCount?: number
+  /** The first cell the chart prints the entry's symbol in, or undefined when no cell does. */
+  example?: ExampleCell
 }
 
 /** Which stitches one page of the source PDF covers, numbered from 1 like a printed chart's margins. Ends are inclusive. */

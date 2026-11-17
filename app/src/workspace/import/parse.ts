@@ -1,6 +1,6 @@
 // Reads charts from page primitives: chart pages with a solid grid of font
 // symbols, joined into one grid, and a legend page.
-import type { ImportIssue, LegendEntry, Size, SourcePage, SymbolKey } from '../chart.ts'
+import type { ExampleCell, ImportIssue, LegendEntry, Size, SourcePage, SymbolKey } from '../chart.ts'
 import { bundledColor } from '../threads/colors.ts'
 import type { Box, Glyph, PagePrimitives, Path, PdfPrimitives } from './extract.ts'
 
@@ -565,6 +565,8 @@ interface ChartPage {
   shaded: { columns: number; rows: number }
   /** Whether anything is filled in inside the grid, such as colored cells. */
   filled: boolean
+  /** Where the page prints its cells. */
+  grid: Grid
 }
 
 type PlacedPage = ChartPage & { offset: { row: number; column: number } }
@@ -855,6 +857,21 @@ function designsOf(printings: JoinedChart[]): Design[] {
   }))
 }
 
+/** Each symbol's first cell, page by page and row by row, where the source PDF prints it. */
+function examplesOf(pages: PlacedPage[]) {
+  const examples = new Map<string, ExampleCell>()
+  for (const { page, width, placed, grid } of pages) {
+    for (const { cell, key } of placed.toSorted((a, b) => a.cell - b.cell)) {
+      if (examples.has(key)) continue
+      const [column, row] = [cell % width, Math.floor(cell / width)]
+      // Row edges run top to bottom, so a row's top edge is the higher y.
+      const box = { x0: grid.xs[column], y0: grid.ys[row + 1], x1: grid.xs[column + 1], y1: grid.ys[row] }
+      examples.set(key, { page, box })
+    }
+  }
+  return examples
+}
+
 /** The indexes of the cells holding `value`. */
 function cellsOf(cells: Uint16Array, value: number) {
   const found: number[] = []
@@ -896,6 +913,7 @@ export function parseCharts({ title: metadataTitle, pages }: PdfPrimitives): Par
         offset,
         shaded: shadedOverlap(page, grid),
         filled,
+        grid,
       })
     } else {
       others.push({ page: index + 1, primitives: page })
@@ -917,9 +935,13 @@ export function parseCharts({ title: metadataTitle, pages }: PdfPrimitives): Par
     const brand = legendBrandIn(own)
     const rows = own.flatMap((page) => legendLinesOn(page, symbolFontFor, brand).flat())
     // A PDF may print the same legend on more than one page; a symbol's first entry is its own.
-    const legend = rows.filter(
-      (row, n) => rows.findIndex((other) => symbolKey(other.symbol) === symbolKey(row.symbol)) === n,
-    )
+    const examples = examplesOf(chart.pages)
+    const legend = rows
+      .filter((row, n) => rows.findIndex((other) => symbolKey(other.symbol) === symbolKey(row.symbol)) === n)
+      .map((entry) => {
+        const example = examples.get(symbolKey(entry.symbol))
+        return example ? { ...entry, example } : entry
+      })
     const entryOf = new Map(legend.map((entry, n) => [symbolKey(entry.symbol), n + 1]))
     const printed = printedSizeIn(own)
     const cells = new Uint16Array(width * height)

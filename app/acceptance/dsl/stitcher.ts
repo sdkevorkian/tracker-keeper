@@ -18,6 +18,7 @@ import type {
   ShownImportIssue,
   ShownLegendEntry,
   ShownStitches,
+  ShownSymbols,
   SourcePagePlacement,
 } from '../drivers/driver.ts'
 
@@ -267,6 +268,10 @@ export class Stitcher {
 
   async seesNoImportIssues() {
     deepStrictEqual(await this.driver.importIssues(), [])
+  }
+
+  async seesSymbols(expected: ShownSymbols) {
+    deepStrictEqual(await this.driver.shownSymbols(), expected)
   }
 
   async switchesDisplayStyle(style: DisplayStyle) {

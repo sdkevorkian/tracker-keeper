@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore, type ChangeEvent } from 'react'
+import { useCallback, useRef, useState, useSyncExternalStore, type ChangeEvent } from 'react'
 import type { Chart } from '../workspace/chart.ts'
 import { listCharts, type Workspace } from '../workspace/workspace.ts'
 import { ChartLibrary } from './ChartLibrary.tsx'
@@ -99,6 +99,9 @@ function App({ workspace }: { workspace: Workspace }) {
 
 /** One chart's own page. `chart` is undefined when the page's chart isn't stored here. */
 function ChartPage({ chart, workspace }: { chart?: Chart; workspace: Workspace }) {
+  const chartId = chart?.id
+  // The same function while the same chart is open, so its symbols are cut once.
+  const sourcePdf = useCallback(() => workspace.sourcePdf(chartId!), [workspace, chartId])
   return (
     <>
       <a className="button back-to-library" href={yourChartsHref}>
@@ -108,7 +111,8 @@ function ChartPage({ chart, workspace }: { chart?: Chart; workspace: Workspace }
         <ChartView
           key={chart.id}
           chart={chart}
-          onViewSourcePdf={(page) => openSourcePdf(() => workspace.sourcePdf(chart.id), page)}
+          sourcePdf={sourcePdf}
+          onViewSourcePdf={(page) => openSourcePdf(sourcePdf, page)}
         />
       ) : (
         <p>This chart isn't stored in this browser.</p>

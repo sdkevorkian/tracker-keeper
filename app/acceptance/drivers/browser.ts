@@ -27,6 +27,7 @@ export class BrowserDriver implements Driver {
     'chart pages',
     'view source PDF',
     'display styles',
+    'symbol images',
   ])
 
   private page: Page
@@ -115,6 +116,15 @@ export class BrowserDriver implements Driver {
 
   async importIssues(): Promise<ShownImportIssue[]> {
     throw new Error("The app doesn't show import issues yet")
+  }
+
+  async shownSymbols() {
+    // Symbols are cut from the source PDF after the chart opens; until then the label says so.
+    await expect(this.chart()).toHaveAttribute('aria-label', /symbols as printed/)
+    const label = await this.chartLabel()
+    const symbols = /(\d+) symbols as printed and (\d+) built in/.exec(label)
+    if (!symbols) throw new Error(`The chart's label doesn't say how its symbols are drawn: "${label}"`)
+    return { asPrinted: Number(symbols[1]), builtIn: Number(symbols[2]) }
   }
 
   async displayStyle() {

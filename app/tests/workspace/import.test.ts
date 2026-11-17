@@ -129,7 +129,9 @@ test('a cover page and an instructions page are ignored', async () => {
       }),
     )
     const { width, height, cells, legend } = workspace.state.charts.get(chartId)!
-    return { charts: workspace.state.charts.size, width, height, cells: Array.from(cells), legend }
+    // Example cells name the chart's page, which the extra pages rightly move.
+    const read = legend.map(({ example: _example, ...entry }) => entry)
+    return { charts: workspace.state.charts.size, width, height, cells: Array.from(cells), legend: read }
   }
   const chart: PageDescription = { type: 'chart', cell: { width: 10, height: 10 }, grid: ['#^', '^#'] }
   const legend: PageDescription = {
