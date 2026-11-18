@@ -26,6 +26,8 @@ export type Capability =
   | 'display styles'
   /** Reading whether each legend entry's symbol is drawn as printed or built in. */
   | 'symbol images'
+  /** Moving the view with the buttons beside the chart and the keyboard, not only the pointer. */
+  | 'view controls'
 
 /** Stitches the stitcher can see, numbered from 1 like a printed chart's margins. Ends are inclusive. */
 export interface ShownStitches {
@@ -57,6 +59,9 @@ export interface ShownSymbols {
   asPrinted: number
   builtIn: number
 }
+
+/** How the stitcher moves the view: the pointer (wheel, trackpad or drag), the buttons beside the chart, or the keyboard. */
+export type ViewControl = 'pointer' | 'buttons' | 'keyboard'
 
 /** One stitch: its column and row, numbered from 1 like a printed chart's margins. */
 export type Stitch = [across: number, down: number]
@@ -122,7 +127,16 @@ export interface Driver {
    * Returns the longest the page was blocked meanwhile, in milliseconds.
    */
   panAndZoomAround(): Promise<number>
-  zoomIn(): Promise<void>
+  zoomIn(using: ViewControl): Promise<void>
+  zoomOut(using: ViewControl): Promise<void>
+  /** Moves the view right, which brings stitches from the chart's right into view. */
+  panRight(using: Exclude<ViewControl, 'buttons'>): Promise<void>
+  /** Presses Tab until the chart has focus, failing if it never does. */
+  tabToChart(): Promise<void>
+  /** Whether the chart has focus and shows a visible focus ring. */
+  chartFocusRingShown(): Promise<boolean>
+  /** Goes back to showing the whole chart. */
+  fitChart(using: Exclude<ViewControl, 'pointer'>): Promise<void>
   /** Drags the chart left, which brings stitches from its right into view. */
   dragChartLeft(): Promise<void>
 }

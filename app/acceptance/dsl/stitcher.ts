@@ -20,6 +20,7 @@ import type {
   ShownStitches,
   ShownSymbols,
   SourcePagePlacement,
+  ViewControl,
 } from '../drivers/driver.ts'
 
 /** How the legend prints one symbol's row, where a case cares. */
@@ -298,9 +299,9 @@ export class Stitcher {
     deepStrictEqual(this.sourcePdfPage, expected)
   }
 
-  async zoomsIn() {
+  async zoomsIn(using: ViewControl = 'pointer') {
     this.shownBefore = await this.driver.shownStitches()
-    await this.driver.zoomIn()
+    await this.driver.zoomIn(using)
   }
 
   async seesFewerStitchesThanBefore() {
@@ -308,6 +309,35 @@ export class Stitcher {
     const now = await this.driver.shownStitches()
     ok(count(now.across) < count(before.across), `Columns shown went from ${before.across} to ${now.across}`)
     ok(count(now.down) < count(before.down), `Rows shown went from ${before.down} to ${now.down}`)
+  }
+
+  async zoomsOut(using: ViewControl = 'pointer') {
+    this.shownBefore = await this.driver.shownStitches()
+    await this.driver.zoomOut(using)
+  }
+
+  async seesMoreStitchesThanBefore() {
+    const before = this.shownBefore!
+    const now = await this.driver.shownStitches()
+    ok(count(now.across) > count(before.across), `Columns shown went from ${before.across} to ${now.across}`)
+    ok(count(now.down) > count(before.down), `Rows shown went from ${before.down} to ${now.down}`)
+  }
+
+  async pansRight(using: Exclude<ViewControl, 'buttons'> = 'pointer') {
+    this.shownBefore = await this.driver.shownStitches()
+    await this.driver.panRight(using)
+  }
+
+  async tabsToTheChart() {
+    await this.driver.tabToChart()
+  }
+
+  async seesTheChartFocused() {
+    ok(await this.driver.chartFocusRingShown(), 'The chart has no visible focus ring')
+  }
+
+  async fitsTheChart(using: Exclude<ViewControl, 'pointer'> = 'buttons') {
+    await this.driver.fitChart(using)
   }
 
   async dragsTheChartLeft() {

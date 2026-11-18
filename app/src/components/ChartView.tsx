@@ -1,13 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { DisplayStyle } from '../view/cellLook.ts'
 import { drawChart } from '../view/draw.ts'
 import { pageForView } from '../view/sourcePage.ts'
 import { cutSymbolImages, type SymbolImages } from '../view/symbolImages.ts'
-import { fitChart, panBy, visibleCells, zoomAt, type Size, type Viewport } from '../view/viewport.ts'
+import {
+  centreOf,
+  fitChart,
+  panBy,
+  viewportForKey,
+  viewportForPinch,
+  viewportForWheel,
+  visibleCells,
+  zoomAt,
+  ZOOM_STEP,
+  type Point,
+  type Size,
+  type Viewport,
+} from '../view/viewport.ts'
 import type { Chart } from '../workspace/chart.ts'
-
-/** How much one pixel of wheel scroll zooms. */
-const WHEEL_ZOOM = 0.002
 
 const DISPLAY_STYLES: DisplayStyle[] = ['symbols only', 'color blocks', 'color with symbols']
 
@@ -22,14 +32,21 @@ interface ChartViewProps {
   onViewSourcePdf: (page: number | undefined) => void
 }
 
-/** The chart on a canvas, panned by dragging and zoomed with the wheel. */
+/** Where a pointer is on the canvas, in canvas pixels. */
+function canvasPoint(event: PointerEvent<HTMLCanvasElement>): Point {
+  const box = event.currentTarget.getBoundingClientRect()
+  return { x: event.clientX - box.left, y: event.clientY - box.top }
+}
+
+/** The chart on a canvas, panned by dragging, scrolling and the keyboard, and zoomed by pinching, the buttons and the keyboard. */
 export function ChartView({ chart, sourcePdf, onViewSourcePdf }: ChartViewProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState<Size>({ width: 0, height: 0 })
   // Undefined until the stitcher pans or zooms; until then the whole chart is fitted to the canvas.
   const [movedViewport, setViewport] = useState<Viewport>()
   const viewport = movedViewport ?? fitChart(size, chart)
-  const drag = useRef<{ x: number; y: number }>(undefined)
+  // Each finger or mouse button down on the chart, where it last was in canvas pixels. One drags; two pinch.
+  const pointers = useRef(new Map<number, Point>())
   // Kept per project once projects exist; for now each opening starts in color with symbols.
   const [style, setStyle] = useState<DisplayStyle>('color with symbols')
   // Undefined while they're being cut.
@@ -64,9 +81,10 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf }: ChartViewProps)
     const element = canvas.current!
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
+      const { deltaX, deltaY, shiftKey, ctrlKey } = event
       const point = { x: event.offsetX, y: event.offsetY }
       const fitted = () => fitChart({ width: element.clientWidth, height: element.clientHeight }, chart)
-      setViewport((current) => zoomAt(current ?? fitted(), Math.exp(-event.deltaY * WHEEL_ZOOM), point))
+      setViewport((current) => viewportForWheel(current ?? fitted(), { deltaX, deltaY, shiftKey, ctrlKey, point }))
     }
     element.addEventListener('wheel', onWheel, { passive: false })
     return () => element.removeEventListener('wheel', onWheel)
@@ -82,6 +100,8 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf }: ChartViewProps)
     context.setTransform(scale, 0, 0, scale, 0, 0)
     drawChart(context, chart, viewport, size, style, symbols ?? NO_SYMBOL_IMAGES)
   }, [chart, viewport, size, style, symbols])
+
+  const centre = centreOf(size)
 
   const { left, top, right, bottom } = visibleCells(viewport, size, chart)
   const symbolsShown = symbols
@@ -100,6 +120,15 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf }: ChartViewProps)
           onClick={() => onViewSourcePdf(pageForView(viewport, size, chart.source.pages))}
         >
           View source PDF
+        </button>
+        <button type="button" className="button" onClick={() => setViewport(zoomAt(viewport, ZOOM_STEP, centre))}>
+          Zoom in
+        </button>
+        <button type="button" className="button" onClick={() => setViewport(zoomAt(viewport, 1 / ZOOM_STEP, centre))}>
+          Zoom out
+        </button>
+        <button type="button" className="button" onClick={() => setViewport(undefined)}>
+          Fit
         </button>
         <fieldset className="display-styles">
           <legend>Display style</legend>
@@ -122,18 +151,34 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf }: ChartViewProps)
         className="chart-view"
         role="img"
         aria-label={label}
+        tabIndex={0}
+        onKeyDown={(event) => {
+          const moved = viewportForKey(viewport, event, size, chart)
+          if (!moved) return
+          event.preventDefault()
+          setViewport(moved)
+        }}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId)
-          drag.current = { x: event.clientX, y: event.clientY }
+          pointers.current.set(event.pointerId, canvasPoint(event))
         }}
         onPointerMove={(event) => {
-          if (!drag.current) return
-          const moved = { x: event.clientX - drag.current.x, y: event.clientY - drag.current.y }
-          drag.current = { x: event.clientX, y: event.clientY }
-          setViewport((current) => panBy(current ?? viewport, moved))
+          const last = pointers.current.get(event.pointerId)
+          if (!last) return
+          const before = [...pointers.current.values()]
+          pointers.current.set(event.pointerId, canvasPoint(event))
+          const after = [...pointers.current.values()]
+          if (before.length === 2) {
+            setViewport((current) =>
+              viewportForPinch(current ?? viewport, [before[0], before[1]], [after[0], after[1]]),
+            )
+          } else {
+            const now = canvasPoint(event)
+            setViewport((current) => panBy(current ?? viewport, { x: now.x - last.x, y: now.y - last.y }))
+          }
         }}
-        onPointerUp={() => (drag.current = undefined)}
-        onPointerCancel={() => (drag.current = undefined)}
+        onPointerUp={(event) => pointers.current.delete(event.pointerId)}
+        onPointerCancel={(event) => pointers.current.delete(event.pointerId)}
       />
     </>
   )

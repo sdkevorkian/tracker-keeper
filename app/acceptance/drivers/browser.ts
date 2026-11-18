@@ -11,10 +11,14 @@ import type {
   ShownImportIssue,
   ShownStitches,
   SourcePagePlacement,
+  ViewControl,
 } from './driver.ts'
 
 /** How long the app lets an import run before giving up on it. */
 const IMPORT_TIMEOUT_MS = 60_000
+
+/** More presses of Tab than it takes to reach the chart from the top of the page. */
+const MOST_TABS_TO_CHART = 20
 
 /** The page, with the long tasks seen since the last import began. */
 type WatchedWindow = Window & { longTasks?: number[] }
@@ -31,6 +35,7 @@ export class BrowserDriver implements Driver {
     'view source PDF',
     'display styles',
     'symbol images',
+    'view controls',
   ])
 
   private page: Page
@@ -173,7 +178,7 @@ export class BrowserDriver implements Driver {
     await this.page.mouse.move(x, y)
     const zoom = async (deltaY: number) => {
       for (let step = 0; step < 12; step++) {
-        await this.page.mouse.wheel(0, deltaY)
+        await this.pinch(deltaY)
         // Let each zoom draw before the next, as a stitcher's scrolling would.
         await this.page.evaluate(() => new Promise(requestAnimationFrame))
       }
@@ -194,11 +199,76 @@ export class BrowserDriver implements Driver {
     return this.page.evaluate(() => Math.max(0, ...((window as WatchedWindow).longTasks ?? [])))
   }
 
-  async zoomIn() {
+  async zoomIn(using: ViewControl) {
     const before = await this.chartLabel()
-    const { x, y } = await this.chartCentre()
-    await this.page.mouse.move(x, y)
-    await this.page.mouse.wheel(0, -300)
+    if (using === 'buttons') await this.page.getByRole('button', { name: 'Zoom in' }).click()
+    else if (using === 'keyboard') await this.pressOnChart('+')
+    else {
+      const { x, y } = await this.chartCentre()
+      await this.page.mouse.move(x, y)
+      await this.pinch(-300)
+    }
+    await expect(this.chart()).not.toHaveAttribute('aria-label', before)
+  }
+
+  async zoomOut(using: ViewControl) {
+    const before = await this.chartLabel()
+    if (using === 'buttons') await this.page.getByRole('button', { name: 'Zoom out' }).click()
+    else if (using === 'keyboard') await this.pressOnChart('-')
+    else {
+      const { x, y } = await this.chartCentre()
+      await this.page.mouse.move(x, y)
+      await this.pinch(300)
+    }
+    await expect(this.chart()).not.toHaveAttribute('aria-label', before)
+  }
+
+  async panRight(using: Exclude<ViewControl, 'buttons'>) {
+    const before = await this.chartLabel()
+    if (using === 'keyboard') await this.pressOnChart('ArrowRight')
+    else {
+      // A two-finger scroll to the right.
+      const { x, y } = await this.chartCentre()
+      await this.page.mouse.move(x, y)
+      await this.page.mouse.wheel(200, 0)
+    }
+    await expect(this.chart()).not.toHaveAttribute('aria-label', before)
+  }
+
+  /** A trackpad pinch over the pointer, which Chrome reports as a wheel turn with Ctrl held. Negative pinches out. */
+  private async pinch(deltaY: number) {
+    await this.page.keyboard.down('Control')
+    await this.page.mouse.wheel(0, deltaY)
+    await this.page.keyboard.up('Control')
+  }
+
+  /** Presses a key with the chart focused. */
+  private async pressOnChart(key: string) {
+    await this.chart().focus()
+    await this.page.keyboard.press(key)
+  }
+
+  async tabToChart() {
+    // Starts from the top of the page, as a stitcher arriving would.
+    await this.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    for (let press = 0; press < MOST_TABS_TO_CHART; press++) {
+      await this.page.keyboard.press('Tab')
+      if (await this.chart().evaluate((chart) => chart === document.activeElement)) return
+    }
+    throw new Error(`The chart wasn't reached after ${MOST_TABS_TO_CHART} presses of Tab`)
+  }
+
+  async chartFocusRingShown() {
+    return this.chart().evaluate((chart) => {
+      const { outlineStyle, outlineWidth } = getComputedStyle(chart)
+      return chart.matches(':focus-visible') && outlineStyle !== 'none' && parseFloat(outlineWidth) > 0
+    })
+  }
+
+  async fitChart(using: Exclude<ViewControl, 'pointer'>) {
+    const before = await this.chartLabel()
+    if (using === 'buttons') await this.page.getByRole('button', { name: 'Fit' }).click()
+    else await this.pressOnChart('0')
     await expect(this.chart()).not.toHaveAttribute('aria-label', before)
   }
 

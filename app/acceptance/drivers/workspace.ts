@@ -178,6 +178,26 @@ export class WorkspaceDriver implements Driver {
     throw new Error('The Workspace driver has no view of the chart')
   }
 
+  async zoomOut() {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
+  async panRight() {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
+  async tabToChart() {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
+  async chartFocusRingShown(): Promise<boolean> {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
+  async fitChart() {
+    throw new Error('The Workspace driver has no view of the chart')
+  }
+
   async dragChartLeft() {
     throw new Error('The Workspace driver has no view of the chart')
   }
