@@ -82,6 +82,11 @@ h2 {
   cursor: grab;
 }
 
+.chart-view:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
 .import-error {
   color: #a3261b;
   font-weight: 600;

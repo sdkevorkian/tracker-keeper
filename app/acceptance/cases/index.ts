@@ -5,5 +5,14 @@ import legendCases from './legend.ts'
 import libraryCases from './library.ts'
 import multiPageCases from './multiPage.ts'
 import pdfStyleCases from './pdfStyles.ts'
+import viewControlCases from './viewControls.ts'
 
-export const cases = [importCases, multiPageCases, pdfStyleCases, legendCases, libraryCases, displayStyleCases]
+export const cases = [
+  importCases,
+  multiPageCases,
+  pdfStyleCases,
+  legendCases,
+  libraryCases,
+  displayStyleCases,
+  viewControlCases,
+]
