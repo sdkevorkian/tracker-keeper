@@ -336,7 +336,7 @@ export class Stitcher {
     ok(await this.driver.chartFocusRingShown(), 'The chart has no visible focus ring')
   }
 
-  async fitsTheChart(using: Exclude<ViewControl, 'pointer'> = 'buttons') {
+  async fitsTheChart(using: Extract<ViewControl, 'buttons' | 'keyboard'> = 'buttons') {
     await this.driver.fitChart(using)
   }
 

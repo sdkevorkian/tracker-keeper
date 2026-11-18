@@ -203,6 +203,7 @@ export class BrowserDriver implements Driver {
     const before = await this.chartLabel()
     if (using === 'buttons') await this.page.getByRole('button', { name: 'Zoom in' }).click()
     else if (using === 'keyboard') await this.pressOnChart('+')
+    else if (using === 'touch') await this.touchChart([-20, 20], [-120, 120], 0)
     else {
       const { x, y } = await this.chartCentre()
       await this.page.mouse.move(x, y)
@@ -213,6 +214,7 @@ export class BrowserDriver implements Driver {
 
   async zoomOut(using: ViewControl) {
     const before = await this.chartLabel()
+    if (using === 'touch') throw new Error('Pinching in on a touchscreen is not driven yet')
     if (using === 'buttons') await this.page.getByRole('button', { name: 'Zoom out' }).click()
     else if (using === 'keyboard') await this.pressOnChart('-')
     else {
@@ -226,6 +228,7 @@ export class BrowserDriver implements Driver {
   async panRight(using: Exclude<ViewControl, 'buttons'>) {
     const before = await this.chartLabel()
     if (using === 'keyboard') await this.pressOnChart('ArrowRight')
+    else if (using === 'touch') await this.touchChart([0], [0], -200)
     else {
       // A two-finger scroll to the right.
       const { x, y } = await this.chartCentre()
@@ -233,6 +236,28 @@ export class BrowserDriver implements Driver {
       await this.page.mouse.wheel(200, 0)
     }
     await expect(this.chart()).not.toHaveAttribute('aria-label', before)
+  }
+
+  /**
+   * Fingers on a touchscreen, sent as real touches so the page sees one pointer per finger.
+   * Each finger starts at its offset across from the chart's centre, spreads to its end offset,
+   * and all of them move `across` together, in 10 steps.
+   */
+  private async touchChart(start: number[], end: number[], across: number) {
+    const { x, y } = await this.chartCentre()
+    const cdp = await this.page.context().newCDPSession(this.page)
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', step: number) =>
+      cdp.send('Input.dispatchTouchEvent', {
+        type,
+        touchPoints:
+          type === 'touchEnd'
+            ? []
+            : start.map((from, id) => ({ id, x: x + from + ((end[id] - from + across) * step) / 10, y })),
+      })
+    await touch('touchStart', 0)
+    for (let step = 1; step <= 10; step++) await touch('touchMove', step)
+    await touch('touchEnd', 10)
+    await cdp.detach()
   }
 
   /** A trackpad pinch over the pointer, which Chrome reports as a wheel turn with Ctrl held. Negative pinches out. */
@@ -265,7 +290,7 @@ export class BrowserDriver implements Driver {
     })
   }
 
-  async fitChart(using: Exclude<ViewControl, 'pointer'>) {
+  async fitChart(using: Extract<ViewControl, 'buttons' | 'keyboard'>) {
     const before = await this.chartLabel()
     if (using === 'buttons') await this.page.getByRole('button', { name: 'Fit' }).click()
     else await this.pressOnChart('0')

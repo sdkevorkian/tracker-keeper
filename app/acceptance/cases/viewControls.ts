@@ -63,4 +63,18 @@ export default function viewControlCases(test: AcceptanceTest) {
       await stitcher.seesStitchesFurtherRightThanBefore()
     },
   )
+
+  test(
+    'on a touchscreen, two fingers pinch-zoom the chart and one finger pans it',
+    { needs: ['import', 'pan and zoom'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ size: { width: 100, height: 100 } })
+
+      await stitcher.zoomsIn('touch')
+      await stitcher.seesFewerStitchesThanBefore()
+
+      await stitcher.pansRight('touch')
+      await stitcher.seesStitchesFurtherRightThanBefore()
+    },
+  )
 }

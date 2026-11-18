@@ -60,8 +60,8 @@ export interface ShownSymbols {
   builtIn: number
 }
 
-/** How the stitcher moves the view: the pointer (wheel, trackpad or drag), the buttons beside the chart, or the keyboard. */
-export type ViewControl = 'pointer' | 'buttons' | 'keyboard'
+/** How the stitcher moves the view: the pointer (wheel, trackpad or drag), a touchscreen, the buttons beside the chart, or the keyboard. */
+export type ViewControl = 'pointer' | 'touch' | 'buttons' | 'keyboard'
 
 /** One stitch: its column and row, numbered from 1 like a printed chart's margins. */
 export type Stitch = [across: number, down: number]
@@ -136,7 +136,7 @@ export interface Driver {
   /** Whether the chart has focus and shows a visible focus ring. */
   chartFocusRingShown(): Promise<boolean>
   /** Goes back to showing the whole chart. */
-  fitChart(using: Exclude<ViewControl, 'pointer'>): Promise<void>
+  fitChart(using: Extract<ViewControl, 'buttons' | 'keyboard'>): Promise<void>
   /** Drags the chart left, which brings stitches from its right into view. */
   dragChartLeft(): Promise<void>
 }
