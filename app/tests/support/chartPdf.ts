@@ -102,6 +102,12 @@ export interface LegendPage {
   /** Prints the symbols in this font, at the same codes, such as a bold variant of the chart's. The chart's font by default. */
   symbolFont?: string
   /**
+   * Prints each symbol at its own font and code, by the chart's symbol names, instead of the chart's.
+   * Some chart software embeds a separate subset of the symbol font for each page, each numbering
+   * its characters differently. The chart's by default.
+   */
+  symbols?: Record<string, SymbolDescription>
+  /**
    * How words in the legend's text are spaced: with space characters, or by
    * moving the text along between words, as some PDF software does. Spaces by default.
    */
@@ -112,6 +118,11 @@ export interface LegendPage {
   headings?: Partial<Record<LegendColumn, string>>[]
   /** Ruled boxes the legend draws, as some chart software does. None by default. */
   boxes?: LegendBoxes
+  /**
+   * Draws each entry's swatch as a square behind its symbol, a little larger
+   * than it, as some chart software does, instead of in a swatch column.
+   */
+  swatchBehindSymbol?: boolean
   entries: LegendEntry[]
 }
 
@@ -204,6 +215,9 @@ const STITCHES_PER_SKEIN = 2000
 const HEADING_FONT = 'LegendText'
 const HEADING_ADVANCE = 500
 const SWATCH_SIZE = 8
+// A swatch behind a symbol is a square a little larger than the symbol, reaching this far past its left edge.
+const BEHIND_SWATCH_SIZE = 14
+const BEHIND_SWATCH_PAD = 1
 // A legend box runs this far below its row's baseline, and is a row tall.
 const LEGEND_BOX_DESCENT = 4
 // How far a frame around legend boxes sits outside them.
@@ -364,7 +378,10 @@ function symbolFor(name: string, symbols: Record<string, SymbolDescription>) {
 }
 
 function checkSymbolFonts(description: ChartPdfDescription) {
-  for (const [name, symbol] of Object.entries(description.symbols)) {
+  const legendSymbols = description.pages.flatMap((page) =>
+    page.type === 'legend' && page.symbols ? Object.entries(page.symbols) : [],
+  )
+  for (const [name, symbol] of [...Object.entries(description.symbols), ...legendSymbols]) {
     if (!(symbol.font in description.fonts)) {
       throw new Error(`Symbol "${name}" uses font "${symbol.font}", which is not in fonts`)
     }
@@ -476,12 +493,17 @@ function legendContent(
   const entryOps = page.entries.flatMap((entry, i) => {
     const y = rowY(notes.length + headings.length + Math.floor(i / perLine))
     const left = (i % perLine) * entryWidth
-    const symbol = symbolFor(entry.symbol, symbols)
+    const symbol = symbolFor(entry.symbol, page.symbols ?? symbols)
     const font = page.symbolFont ?? symbol.font
     const code = symbol.code.toString(16).padStart(2, '0')
     const codes = page.paddedSymbols ? `<00${code}0020>` : `<${code}>`
+    const behind =
+      page.swatchBehindSymbol && entry.swatch
+        ? (x: number, at: number) =>
+            `${fillColor(entry.swatch!)} ${x - BEHIND_SWATCH_PAD} ${at - LEGEND_BOX_DESCENT} ${BEHIND_SWATCH_SIZE} ${BEHIND_SWATCH_SIZE} re f 0 g\n`
+        : () => ''
     const symbolOps = (x: number, at: number) =>
-      `BT /${fontKeys.get(font)} ${TEXT_SIZE} Tf 1 0 0 1 ${x} ${at} Tm ${codes} Tj ET`
+      `${behind(x, at)}BT /${fontKeys.get(font)} ${TEXT_SIZE} Tf 1 0 0 1 ${x} ${at} Tm ${codes} Tj ET`
     // A swatch in a box sits in the middle of it.
     const inset = (name: LegendColumn) =>
       name === 'swatch' && page.boxes === 'framed swatches' ? (LEGEND_COLUMN_WIDTHS.swatch - SWATCH_SIZE) / 2 : 0

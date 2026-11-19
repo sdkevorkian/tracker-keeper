@@ -846,6 +846,65 @@ test('a legend entry can print a color swatch between its symbol and its thread'
   ])
 })
 
+test('a legend can print its symbols at their own font and code, such as another subset of the chart font', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: {
+        'AAAAAA+StitchSymbols': { glyphs: { 0x41: 'square' } },
+        'BBBBBB+StitchSymbols': { glyphs: { 0x42: 'square' } },
+      },
+      symbols: { '#': { font: 'AAAAAA+StitchSymbols', code: 0x41 } },
+      pages: [
+        { type: 'chart', cell: { width: 10, height: 10 }, grid: ['#'] },
+        {
+          type: 'legend',
+          symbols: { '#': { font: 'BBBBBB+StitchSymbols', code: 0x42 } },
+          entries: [{ symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 1 }],
+        },
+      ],
+    }),
+  )
+
+  const symbolsOn = (page: number) =>
+    pdf.pages[page].glyphs
+      .filter((glyph) => glyph.font.endsWith('StitchSymbols'))
+      .map(({ font, code }) => ({ font, code }))
+  expect(symbolsOn(0)).toEqual([{ font: 'AAAAAA+StitchSymbols', code: 0x41 }])
+  expect(symbolsOn(1)).toEqual([{ font: 'BBBBBB+StitchSymbols', code: 0x42 }])
+})
+
+test('a legend can draw each swatch behind its symbol, as a square a little larger than it', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: { StitchSquares: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSquares', code: 0x41 } },
+      pages: [
+        {
+          type: 'legend',
+          columns: ['symbol', 'brand', 'code', 'name', 'strands', 'count'],
+          swatchBehindSymbol: true,
+          entries: [
+            {
+              symbol: '#',
+              thread: { brand: 'DMC', code: '310' },
+              name: 'Black',
+              strands: 2,
+              count: 4,
+              swatch: '#202020',
+            },
+          ],
+        },
+      ],
+    }),
+  )
+
+  const page = pdf.pages[0]
+  const symbol = page.glyphs.find((glyph) => glyph.font === 'StitchSquares')!
+  expect(page.fills).toEqual([
+    { color: '#202020', x0: symbol.x - 1, y0: symbol.y - 4, x1: symbol.x + 13, y1: symbol.y + 10 },
+  ])
+})
+
 /** Each distinct position, in order, and the gaps between neighbours, rounded to a hundredth of a point. */
 function gapsBetween(positions: number[]) {
   const sorted = [...new Set(positions.map((value) => Math.round(value * 100) / 100))].sort((a, b) => a - b)
