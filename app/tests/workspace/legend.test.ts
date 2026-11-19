@@ -42,10 +42,27 @@ test('a legend entry with no stitches is reported as that, not as a count mismat
   expect(chart.importIssues).toEqual([{ kind: 'legend entry with no stitches', entry: 2 }])
 })
 
-test("a DMC thread keeps the bundled color even when the legend's swatch differs", async () => {
+test("a DMC thread takes the legend's swatch color over the bundled one", async () => {
   const chart = await importChart({ type: 'chart', cell: { width: 10, height: 10 }, grid: ['##'] }, [
     { ...black, swatch: '#202020' },
   ])
+
+  // The bundled table has #000000 for DMC 310; the designer's printed swatch wins (ADR-0002).
+  expect(chart.legend[0].color).toBe('#202020')
+})
+
+test('a swatch drawn behind its symbol gives the color', async () => {
+  const chart = await importChart(
+    { type: 'chart', cell: { width: 10, height: 10 }, grid: ['##'] },
+    [{ ...black, swatch: '#202020' }],
+    { columns: ['symbol', 'brand', 'code', 'name', 'strands', 'count'], swatchBehindSymbol: true },
+  )
+
+  expect(chart.legend[0].color).toBe('#202020')
+})
+
+test('a DMC thread with no swatch falls back to the bundled color', async () => {
+  const chart = await importChart({ type: 'chart', cell: { width: 10, height: 10 }, grid: ['##'] }, [black])
 
   // From craft-color-codes' dmc-floss.json.
   expect(chart.legend[0].color).toBe('#000000')

@@ -348,16 +348,33 @@ function columnsOf(glyphs: Glyph[]) {
   return wordsOf(glyphs).map(textOf).filter(Boolean)
 }
 
-/** The color of a swatch printed on a legend row: a filled shape beside its symbol, no taller than the symbol. */
+/**
+ * The color of a swatch printed on a legend row: a filled shape beside its
+ * symbol, no taller than the symbol, or one behind the symbol, not much larger than it.
+ */
 function swatchColor(symbol: Glyph, fills: Path[]) {
   const height = symbol.box.y1 - symbol.box.y0
+  const width = symbol.box.x1 - symbol.box.x0
+  const middle = centre(symbol.box)
   const swatch = fills.find((path) => {
     const box = boxOfPath(path)
     const { y } = centre(box)
-    return y >= symbol.box.y0 && y <= symbol.box.y1 && box.y1 - box.y0 <= height && box.x0 >= symbol.box.x1
+    const beside = y >= symbol.box.y0 && y <= symbol.box.y1 && box.y1 - box.y0 <= height && box.x0 >= symbol.box.x1
+    const behind =
+      box.x0 <= middle.x &&
+      box.x1 >= middle.x &&
+      box.y0 <= middle.y &&
+      box.y1 >= middle.y &&
+      box.x1 - box.x0 <= width * BEHIND_SWATCH_MAX_SCALE &&
+      box.y1 - box.y0 <= height * BEHIND_SWATCH_MAX_SCALE
+    return beside || behind
   })
   return swatch?.fillColor
 }
+
+// A swatch behind a symbol is at most this many times the symbol's size, so a
+// shaded table cell or page background isn't taken for one.
+const BEHIND_SWATCH_MAX_SCALE = 1.5
 
 /**
  * A thread as a legend prints it, such as 'DMC 310' or 'DMC BLANC': the brand,
@@ -522,7 +539,8 @@ function readLegendRow(line: Glyph[], page: LegendPageContext): LegendEntry | un
       ...(names && { name: names[i].trim() }),
       ...(strands && { strands: strands[i] }),
     })),
-    color: (threads.length === 1 ? bundledColor(threads[0]) : undefined) ?? swatchColor(first, page.fills),
+    // The designer's printed swatch wins; the bundled table is only a fallback (ADR-0002).
+    color: swatchColor(first, page.fills) ?? (threads.length === 1 ? bundledColor(threads[0]) : undefined),
     ...(numbers.count !== undefined && { printedCount: Number(numbers.count) }),
   }
 }
