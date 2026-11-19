@@ -102,6 +102,12 @@ export interface LegendPage {
   /** Prints the symbols in this font, at the same codes, such as a bold variant of the chart's. The chart's font by default. */
   symbolFont?: string
   /**
+   * Prints each symbol at its own font and code, by the chart's symbol names, instead of the chart's.
+   * Some chart software embeds a separate subset of the symbol font for each page, each numbering
+   * its characters differently. The chart's by default.
+   */
+  symbols?: Record<string, SymbolDescription>
+  /**
    * How words in the legend's text are spaced: with space characters, or by
    * moving the text along between words, as some PDF software does. Spaces by default.
    */
@@ -372,7 +378,10 @@ function symbolFor(name: string, symbols: Record<string, SymbolDescription>) {
 }
 
 function checkSymbolFonts(description: ChartPdfDescription) {
-  for (const [name, symbol] of Object.entries(description.symbols)) {
+  const legendSymbols = description.pages.flatMap((page) =>
+    page.type === 'legend' && page.symbols ? Object.entries(page.symbols) : [],
+  )
+  for (const [name, symbol] of [...Object.entries(description.symbols), ...legendSymbols]) {
     if (!(symbol.font in description.fonts)) {
       throw new Error(`Symbol "${name}" uses font "${symbol.font}", which is not in fonts`)
     }
@@ -484,7 +493,7 @@ function legendContent(
   const entryOps = page.entries.flatMap((entry, i) => {
     const y = rowY(notes.length + headings.length + Math.floor(i / perLine))
     const left = (i % perLine) * entryWidth
-    const symbol = symbolFor(entry.symbol, symbols)
+    const symbol = symbolFor(entry.symbol, page.symbols ?? symbols)
     const font = page.symbolFont ?? symbol.font
     const code = symbol.code.toString(16).padStart(2, '0')
     const codes = page.paddedSymbols ? `<00${code}0020>` : `<${code}>`

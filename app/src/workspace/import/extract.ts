@@ -12,7 +12,12 @@ export interface Box {
 export interface Glyph {
   /** Font name, without any `ABCDEF+` subset prefix. */
   font: string
-  /** The raw character code. Symbols are identified by this, never by `unicode`. */
+  /**
+   * The character code. Symbols are identified by this, never by `unicode`. Where a
+   * font is embedded as several subsets that number their characters differently,
+   * this is the first subset's code for the same character, so it means one
+   * character throughout the document.
+   */
   code: number
   /** What the font says the character is; only meaningful for ordinary text. */
   unicode: string
@@ -117,8 +122,68 @@ function withoutSubsetPrefix(name: string) {
   return name.replace(/^[A-Z]{6}\+/, '')
 }
 
+interface DrawnGlyph {
+  glyph: Glyph
+  fontObject: string
+}
+
+/** Codes a renumbered character never takes, as the parser reads them as blank cells. */
+const BLANK_CODES = new Set([0x00, 0x20])
+
+/**
+ * Some PDF software embeds a separate subset of a font for each page, all
+ * under one name, each numbering its characters in its own order. Renumbers
+ * every later subset's codes to the first subset's, pairing characters by what
+ * the ToUnicode map says they are, so a code means one character throughout
+ * the document. A font whose subsets don't each map codes to distinct
+ * characters one to one is left as it is, as there is nothing to pair them by.
+ */
+function renumberSubsets(drawn: DrawnGlyph[]) {
+  // Each font name's subsets, in the order the document first uses them, each as code → character.
+  const fonts = new Map<string, Map<string, Map<number, string>>>()
+  for (const { glyph, fontObject } of drawn) {
+    const subsets = fonts.get(glyph.font) ?? new Map<string, Map<number, string>>()
+    fonts.set(glyph.font, subsets)
+    const characters = subsets.get(fontObject) ?? new Map<number, string>()
+    subsets.set(fontObject, characters)
+    // A code that reads as two characters can't be paired; marked with '' so the check below fails.
+    const known = characters.get(glyph.code)
+    characters.set(glyph.code, known === undefined || known === glyph.unicode ? glyph.unicode : '')
+  }
+  const renumbered = new Map<string, Map<number, number>>()
+  for (const subsets of fonts.values()) {
+    if (subsets.size < 2 || ![...subsets.values()].every(pairsOneToOne)) continue
+    const [[, first], ...later] = [...subsets]
+    const codeOf = new Map([...first].map(([code, character]) => [character, code]))
+    const taken = new Set(first.keys())
+    for (const [fontObject, characters] of later) {
+      const codes = new Map<number, number>()
+      for (const [code, character] of characters) {
+        let to = codeOf.get(character)
+        if (to === undefined) {
+          to = code
+          while (taken.has(to) || (BLANK_CODES.has(to) && to !== code)) to++
+          codeOf.set(character, to)
+          taken.add(to)
+        }
+        codes.set(code, to)
+      }
+      renumbered.set(fontObject, codes)
+    }
+  }
+  for (const { glyph, fontObject } of drawn) glyph.code = renumbered.get(fontObject)?.get(glyph.code) ?? glyph.code
+}
+
+/** Whether a subset maps each code to its own character, so its characters can be paired with another subset's. */
+function pairsOneToOne(characters: Map<number, string>) {
+  const values = [...characters.values()]
+  return values.every((character) => character !== '') && new Set(values).size === values.length
+}
+
 interface TextState {
   font: string
+  /** pdf.js's id for the font object, which tells apart subsets that share a name. */
+  fontObject: string
   ascent: number
   descent: number
   size: number
@@ -188,6 +253,8 @@ export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promi
   try {
     if (document.numPages > MAX_PAGES) throw new Error(`This PDF has too many pages to import (over ${MAX_PAGES})`)
     const pages: PagePrimitives[] = []
+    // Every glyph, with the font object that drew it, for renumbering subsets once all pages are read.
+    const drawn: DrawnGlyph[] = []
     for (let number = 1; number <= document.numPages; number++) {
       signal?.throwIfAborted()
       const page = await document.getPage(number)
@@ -201,6 +268,7 @@ export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promi
         fillColor: '#000000',
         text: {
           font: '',
+          fontObject: '',
           ascent: 0.8,
           descent: -0.2,
           size: 0,
@@ -243,6 +311,7 @@ export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promi
           case OPS.setFont: {
             const font = page.commonObjs.get(args[0])
             state.text.font = withoutSubsetPrefix(font.name ?? '')
+            state.text.fontObject = args[0]
             state.text.ascent = font.ascent || 0.8
             state.text.descent = font.descent || -0.2
             state.text.size = args[1]
@@ -286,7 +355,7 @@ export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promi
               }
               const advance = (glyph.width / 1000) * t.size
               const toPage = multiply(text, state.ctm)
-              glyphs.push({
+              const drawnGlyph: Glyph = {
                 font: t.font,
                 code: glyph.originalCharCode,
                 unicode: glyph.unicode,
@@ -295,7 +364,9 @@ export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promi
                   apply(toPage, [advance * t.hScale, t.rise + t.ascent * t.size]),
                 ]),
                 turns: turnsOf(toPage),
-              })
+              }
+              glyphs.push(drawnGlyph)
+              drawn.push({ glyph: drawnGlyph, fontObject: t.fontObject })
               const spacing = t.charSpacing + (glyph.unicode === ' ' ? t.wordSpacing : 0)
               text = multiply([1, 0, 0, 1, (advance + spacing) * t.hScale, 0], text)
             }
@@ -319,6 +390,7 @@ export async function extractPdf(bytes: Uint8Array, signal?: AbortSignal): Promi
       pages.push({ glyphs, paths })
       page.cleanup()
     }
+    renumberSubsets(drawn)
     const { info } = await document.getMetadata()
     const title = (info as { Title?: unknown }).Title
     return { title: typeof title === 'string' ? title : undefined, pages }

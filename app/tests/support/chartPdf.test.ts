@@ -846,6 +846,33 @@ test('a legend entry can print a color swatch between its symbol and its thread'
   ])
 })
 
+test('a legend can print its symbols at their own font and code, such as another subset of the chart font', async () => {
+  const pdf = await readPdf(
+    buildChartPdf({
+      fonts: {
+        'AAAAAA+StitchSymbols': { glyphs: { 0x41: 'square' } },
+        'BBBBBB+StitchSymbols': { glyphs: { 0x42: 'square' } },
+      },
+      symbols: { '#': { font: 'AAAAAA+StitchSymbols', code: 0x41 } },
+      pages: [
+        { type: 'chart', cell: { width: 10, height: 10 }, grid: ['#'] },
+        {
+          type: 'legend',
+          symbols: { '#': { font: 'BBBBBB+StitchSymbols', code: 0x42 } },
+          entries: [{ symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 1 }],
+        },
+      ],
+    }),
+  )
+
+  const symbolsOn = (page: number) =>
+    pdf.pages[page].glyphs
+      .filter((glyph) => glyph.font.endsWith('StitchSymbols'))
+      .map(({ font, code }) => ({ font, code }))
+  expect(symbolsOn(0)).toEqual([{ font: 'AAAAAA+StitchSymbols', code: 0x41 }])
+  expect(symbolsOn(1)).toEqual([{ font: 'BBBBBB+StitchSymbols', code: 0x42 }])
+})
+
 test('a legend can draw each swatch behind its symbol, as a square a little larger than it', async () => {
   const pdf = await readPdf(
     buildChartPdf({

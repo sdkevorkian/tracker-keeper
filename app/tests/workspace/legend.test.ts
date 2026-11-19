@@ -61,6 +61,42 @@ test('a swatch drawn behind its symbol gives the color', async () => {
   expect(chart.legend[0].color).toBe('#202020')
 })
 
+test("a legend printed in another subset of the chart's font, numbering its symbols differently, still matches each cell to its entry", async () => {
+  const workspace = createWorkspace({ readCharts: readChartsInProcess })
+  const chartId = await workspace.importPdf(
+    buildChartPdf({
+      // The same font, embedded twice: each subset numbers the symbols in the order its page first uses them.
+      fonts: {
+        'AAAAAA+StitchSymbols': { glyphs: { 0x41: 'triangle', 0x42: 'square' } },
+        'BBBBBB+StitchSymbols': { glyphs: { 0x41: 'square', 0x42: 'triangle' } },
+      },
+      symbols: {
+        '#': { font: 'AAAAAA+StitchSymbols', code: 0x42 },
+        '^': { font: 'AAAAAA+StitchSymbols', code: 0x41 },
+      },
+      pages: [
+        { type: 'chart', cell: { width: 10, height: 10 }, grid: ['^#', '##'] },
+        {
+          type: 'legend',
+          symbols: {
+            '#': { font: 'BBBBBB+StitchSymbols', code: 0x41 },
+            '^': { font: 'BBBBBB+StitchSymbols', code: 0x42 },
+          },
+          entries: [
+            { ...black, count: 3 },
+            { symbol: '^', thread: { brand: 'DMC', code: '321' }, name: 'Red', strands: 2, count: 1 },
+          ],
+        },
+      ],
+    }),
+  )
+  const chart = workspace.state.charts.get(chartId)!
+
+  const threadOf = (cell: number) => chart.legend[chart.cells[cell] - 1].threads[0].code
+  expect([0, 1, 2, 3].map(threadOf)).toEqual(['321', '310', '310', '310'])
+  expect(chart.importIssues).toEqual([])
+})
+
 test('a DMC thread with no swatch falls back to the bundled color', async () => {
   const chart = await importChart({ type: 'chart', cell: { width: 10, height: 10 }, grid: ['##'] }, [black])
 
