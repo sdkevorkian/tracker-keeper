@@ -16,6 +16,8 @@ export interface Workspace {
   importPdf(bytes: Uint8Array): Promise<string>
   /** Gives a chart the stitcher's own title, replacing any from its source PDF. */
   renameChart(chartId: string, title: string): void
+  /** Deletes a chart and its corrections. It can't be undone. */
+  deleteChart(chartId: string): void
   /** The bytes of a chart's source PDF. */
   sourcePdf(chartId: string): Promise<Uint8Array>
   /** Resolves once every change so far is saved. */
@@ -59,10 +61,15 @@ export async function openWorkspace({ database, ...options }: StoredWorkspaceOpt
     save: (before, after) =>
       storage.transaction('rw', storage.charts, async () => {
         const changed = [...after.charts.values()].filter((chart) => before.charts.get(chart.id) !== chart)
+        const deleted = [...before.charts.keys()].filter((id) => !after.charts.has(id))
         await storage.charts.bulkPut(changed)
+        await storage.charts.bulkDelete(deleted)
       }),
     addSourcePdf: async (pdfSha256, bytes) => {
       await storage.sourcePdfs.put({ sha256: pdfSha256, bytes })
+    },
+    removeSourcePdf: async (pdfSha256) => {
+      await storage.sourcePdfs.delete(pdfSha256)
     },
     sourcePdf: async (pdfSha256) => (await storage.sourcePdfs.get(pdfSha256))?.bytes,
   })
@@ -75,6 +82,7 @@ interface Store {
   save(before: WorkspaceState, after: WorkspaceState): Promise<void>
   /** Keeps a source PDF, once however many charts come from it. */
   addSourcePdf(pdfSha256: string, bytes: Uint8Array): Promise<void>
+  removeSourcePdf(pdfSha256: string): Promise<void>
   sourcePdf(pdfSha256: string): Promise<Uint8Array | undefined>
 }
 
@@ -86,6 +94,9 @@ function memoryStore(): Store {
     save: async () => {},
     addSourcePdf: async (pdfSha256, bytes) => {
       sourcePdfs.set(pdfSha256, bytes)
+    },
+    removeSourcePdf: async (pdfSha256) => {
+      sourcePdfs.delete(pdfSha256)
     },
     sourcePdf: async (pdfSha256) => sourcePdfs.get(pdfSha256),
   }
@@ -144,6 +155,17 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
       const chart = state.charts.get(chartId)
       if (!chart) throw new Error('No such chart')
       update({ ...state, charts: new Map(state.charts).set(chartId, { ...chart, title }) })
+    },
+    deleteChart(chartId) {
+      const chart = state.charts.get(chartId)
+      if (!chart) throw new Error('No such chart')
+      const charts = new Map(state.charts)
+      charts.delete(chartId)
+      update({ ...state, charts })
+      // After the chart, so a saved chart's source PDF is always there.
+      const { pdfSha256 } = chart.source
+      const stillUsed = [...charts.values()].some((other) => other.source.pdfSha256 === pdfSha256)
+      if (!stillUsed) queue(() => store.removeSourcePdf(pdfSha256))
     },
     async sourcePdf(chartId) {
       const chart = state.charts.get(chartId)

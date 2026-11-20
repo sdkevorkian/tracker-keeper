@@ -3,6 +3,7 @@ import type { Chart } from '../workspace/chart.ts'
 import { listCharts, type Workspace } from '../workspace/workspace.ts'
 import { ChartLibrary } from './ChartLibrary.tsx'
 import { ChartView } from './ChartView.tsx'
+import { DeleteChartButton } from './DeleteChartButton.tsx'
 import { chartHref, goTo, useRoute, yourChartsHref } from './route.ts'
 import './App.css'
 
@@ -90,7 +91,7 @@ function App({ workspace }: { workspace: Workspace }) {
           (route.page === 'chart' ? (
             <ChartPage chart={state.charts.get(route.chartId)} workspace={workspace} />
           ) : (
-            <ChartLibrary charts={listCharts(state)} />
+            <ChartLibrary charts={listCharts(state)} onDelete={(chartId) => workspace.deleteChart(chartId)} />
           ))}
       </main>
     </>
@@ -104,9 +105,21 @@ function ChartPage({ chart, workspace }: { chart?: Chart; workspace: Workspace }
   const sourcePdf = useCallback(() => workspace.sourcePdf(chartId!), [workspace, chartId])
   return (
     <>
-      <a className="button back-to-library" href={yourChartsHref}>
-        Your charts
-      </a>
+      <div className="chart-page-actions">
+        <a className="button" href={yourChartsHref}>
+          Your charts
+        </a>
+        {chart && (
+          <DeleteChartButton
+            chart={chart}
+            onDelete={() => {
+              // Away from its page first, so the page never shows the chart missing.
+              goTo(yourChartsHref)
+              workspace.deleteChart(chart.id)
+            }}
+          />
+        )}
+      </div>
       {chart ? (
         <ChartView
           key={chart.id}

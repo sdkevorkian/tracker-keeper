@@ -4,6 +4,7 @@ import { listCharts, openWorkspace, type Workspace } from '../../src/workspace/w
 import { readChartsInProcess } from '../../src/workspace/import/readCharts.ts'
 import type {
   Capability,
+  DeleteFrom,
   Driver,
   ShownChart,
   ShownImportIssue,
@@ -24,6 +25,7 @@ export class WorkspaceDriver implements Driver {
     'chart title',
     'reload',
     'chart library',
+    'delete charts',
   ])
   /** In memory, and kept across reloads like the browser's. */
   private database = { indexedDB: new IDBFactory(), IDBKeyRange }
@@ -58,6 +60,29 @@ export class WorkspaceDriver implements Driver {
     const chart = listCharts((await this.open()).state).find((listed) => listed.title === title)
     if (!chart) throw new Error(`No chart titled "${title}" is listed`)
     this.chartId = chart.id
+  }
+
+  async deleteChart(title: string, from: DeleteFrom) {
+    const workspace = await this.open()
+    const chart =
+      from === 'its page' ? this.chart() : listCharts(workspace.state).find((listed) => listed.title === title)
+    if (chart?.title !== title)
+      throw new Error(`No chart titled "${title}" is ${from === 'its page' ? 'open' : 'listed'}`)
+    workspace.deleteChart(chart.id)
+    // Its page is gone, so the stitcher is back on Your charts.
+    this.chartId = undefined
+  }
+
+  async startDeletingChart(): Promise<void> {
+    throw new Error('The Workspace driver has no confirmation to stop at')
+  }
+
+  async deleteConfirmation(): Promise<string> {
+    throw new Error('The Workspace driver has no confirmation to read')
+  }
+
+  async cancelDelete() {
+    throw new Error('The Workspace driver has no confirmation to cancel')
   }
 
   private async open() {

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect, type Page } from '@playwright/test'
 import type {
   Capability,
+  DeleteFrom,
   DisplayStyle,
   Driver,
   ShownChart,
@@ -31,6 +32,8 @@ export class BrowserDriver implements Driver {
     'pan and zoom',
     'reload',
     'chart library',
+    'delete charts',
+    'delete confirmation',
     'chart pages',
     'view source PDF',
     'display styles',
@@ -86,6 +89,31 @@ export class BrowserDriver implements Driver {
   async openChart(title: string) {
     await this.page.getByRole('list', { name: 'Your charts' }).getByRole('link', { name: title, exact: true }).click()
     await expect(this.chart()).toBeVisible()
+  }
+
+  async deleteChart(title: string, from: DeleteFrom) {
+    const where =
+      from === 'its page' ? this.page.getByRole('main') : this.page.getByRole('list', { name: 'Your charts' })
+    await where.getByRole('button', { name: `Delete ${title}`, exact: true }).click()
+    const confirmation = this.page.getByRole('dialog')
+    await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(confirmation).toBeHidden()
+  }
+
+  async startDeletingChart(title: string) {
+    const list = this.page.getByRole('list', { name: 'Your charts' })
+    await list.getByRole('button', { name: `Delete ${title}`, exact: true }).click()
+    await expect(this.page.getByRole('dialog')).toBeVisible()
+  }
+
+  async deleteConfirmation() {
+    return (await this.page.getByRole('dialog').innerText()).replace(/\s+/g, ' ')
+  }
+
+  async cancelDelete() {
+    const confirmation = this.page.getByRole('dialog')
+    await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(confirmation).toBeHidden()
   }
 
   async shownChartSize() {
