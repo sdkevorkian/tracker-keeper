@@ -123,31 +123,42 @@ h2 {
   margin: 0;
   padding: 0;
   list-style: none;
+  /* Ruled like notebook paper: a faint line above the first row and under each one. */
+  --rule: color-mix(in srgb, var(--text) 35%, transparent);
+  border-top: 1px solid var(--rule);
 }
 
 .chart-library-row {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 12px;
-  margin-top: 16px;
+  border-bottom: 1px solid var(--rule);
 }
 
 .chart-library-item {
   display: block;
   flex: 1;
   min-width: 0;
-  padding: 16px 20px;
-  border: 1px solid var(--text);
-  border-radius: 6px;
+  padding: 16px 4px;
   color: var(--text-h);
   text-decoration: none;
+}
+
+.chart-library-item:hover {
+  text-decoration: underline;
 }
 
 .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 14px;
+  padding: 8px;
+  border-color: transparent;
+}
+
+.icon-button:hover,
+.icon-button:focus-visible {
+  border-color: var(--text);
 }
 
 .chart-page-actions {
