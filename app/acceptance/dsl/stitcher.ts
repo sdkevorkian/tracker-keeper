@@ -12,6 +12,7 @@ import {
   type SymbolDescription,
 } from '../../tests/support/chartPdf.ts'
 import type {
+  DeleteFrom,
   DisplayStyle,
   Driver,
   ShownChart,
@@ -236,6 +237,30 @@ export class Stitcher {
 
   async opensChart(title: string) {
     await this.driver.openChart(title)
+  }
+
+  /** Deletes a chart, confirming when asked. From Your charts by default. */
+  async deletesChart(title: string, { from = 'Your charts' }: { from?: DeleteFrom } = {}) {
+    await this.driver.deleteChart(title, from)
+  }
+
+  /** Starts deleting a chart from Your charts, stopping when asked to confirm. */
+  async startsDeletingChart(title: string) {
+    await this.driver.startDeletingChart(title)
+  }
+
+  /** The confirmation names the chart and says what will be lost with it. */
+  async isAskedToConfirmDeleting(title: string, { losing }: { losing: string }) {
+    const confirmation = await this.driver.deleteConfirmation()
+    ok(confirmation.includes(title), `The confirmation doesn't name "${title}": "${confirmation}"`)
+    ok(
+      confirmation.includes(`${losing} will be lost`),
+      `The confirmation doesn't say its ${losing} will be lost: "${confirmation}"`,
+    )
+  }
+
+  async cancelsDeleting() {
+    await this.driver.cancelDelete()
   }
 
   async seesChart(expected: { width: number; height: number }) {

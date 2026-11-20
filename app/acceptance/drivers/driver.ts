@@ -18,6 +18,10 @@ export type Capability =
   | 'reload'
   /** Listing the stored charts on the home screen, and opening one. */
   | 'chart library'
+  /** Deleting a chart, after confirming. */
+  | 'delete charts'
+  /** Reading the confirmation a delete asks for, and cancelling it. */
+  | 'delete confirmation'
   /** Each chart having a page of its own, which a reload stays on. */
   | 'chart pages'
   /** Opening the source PDF at the page that covers the view. */
@@ -51,6 +55,9 @@ export interface ShownChart extends Size {
   /** Each legend entry's thread, such as 'DMC 310', and how many of the chart's stitches use it. Left out when a case doesn't care. */
   legend?: { thread: string; stitches: number }[]
 }
+
+/** Where the stitcher deletes a chart from. */
+export type DeleteFrom = 'Your charts' | 'its page'
 
 /** How the app draws a chart on screen. */
 export type DisplayStyle = 'symbols only' | 'color blocks' | 'color with symbols'
@@ -100,6 +107,16 @@ export interface Driver {
   goToYourCharts(): Promise<void>
   /** Opens the chart with this title from the home screen. */
   openChart(title: string): Promise<void>
+  /**
+   * Deletes the chart with this title, confirming when asked: from Your charts,
+   * or from its own page, which the stitcher is on.
+   */
+  deleteChart(title: string, from: DeleteFrom): Promise<void>
+  /** Starts deleting the chart with this title from Your charts, stopping at the confirmation. */
+  startDeletingChart(title: string): Promise<void>
+  /** The text of the confirmation on screen. */
+  deleteConfirmation(): Promise<string>
+  cancelDelete(): Promise<void>
   /** The size of the chart the stitcher is looking at, in stitches. */
   shownChartSize(): Promise<{ width: number; height: number }>
   /** The longest the page was blocked during the last import, in milliseconds. */
