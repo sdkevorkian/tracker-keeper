@@ -1,6 +1,8 @@
-// Draws a chart on a canvas in layers, bottom to top. Later layers (progress,
-// adjustment markers, highlights) go on top of these.
+// Draws a chart on a canvas in layers, bottom to top. Later layers (adjustment
+// markers, highlights) go on top of these.
 import type { Chart } from '../workspace/chart.ts'
+import { DONE, WHITE_FABRIC } from '../workspace/project.ts'
+import type { CellPosition } from './cells.ts'
 import { cellLook, type DisplayStyle } from './cellLook.ts'
 import { detailAt, gridLineWeight, type GridLineWeight } from './detail.ts'
 import { fallbackSymbol } from './fallbackSymbol.ts'
@@ -16,7 +18,23 @@ interface Scene {
   style: DisplayStyle
   /** Symbols cut from the source PDF. An entry without one is drawn with a built-in symbol. */
   symbols: SymbolImages
+  /** The project being stitched, when there is one. */
+  project?: ProjectLook
 }
+
+/** What a project adds to the chart: its fabric, which stitches are done, and the cell cursor. */
+export interface ProjectLook {
+  fabricColor: string
+  /** One state per cell, as in a project's progress. */
+  progress: Uint8Array
+  cursor?: CellPosition
+}
+
+/** How much of the fabric color is laid over a done stitch, so it shows dimmed but still readable. */
+const DONE_DIMMING = 0.7
+
+/** The cell cursor: the selection color, thick enough to see on any thread color. */
+const CURSOR = { color: '#7a3b69', width: 3, smallest: 8 }
 
 type Layer = (context: CanvasRenderingContext2D, scene: Scene) => void
 
@@ -37,19 +55,86 @@ function colorImage(chart: Chart) {
   let image = colorImages.get(chart)
   if (image) return image
   const zoomedOut = { symbols: false, gridLines: false }
-  // Each legend entry's color once, as [r, g, b]; index 0 is a blank cell.
-  const colors = [undefined, ...chart.legend].map((entry) => {
-    const { fill } = cellLook(entry, 'color blocks', zoomedOut)
-    return [1, 3, 5].map((start) => parseInt(fill.slice(start, start + 2), 16))
-  })
+  // Each legend entry's color once, as [r, g, b, a]; a blank cell is clear, so the fabric shows through.
+  const colors = [
+    [0, 0, 0, 0],
+    ...chart.legend.map((entry) => [...rgb(cellLook(entry, 'color blocks', zoomedOut).fill), 255]),
+  ]
   const pixels = new ImageData(chart.width, chart.height)
-  chart.cells.forEach((entry, i) => pixels.data.set([...(colors[entry] ?? colors[0]), 255], i * 4))
+  chart.cells.forEach((entry, i) => pixels.data.set(colors[entry] ?? colors[0], i * 4))
   image = document.createElement('canvas')
   image.width = chart.width
   image.height = chart.height
   image.getContext('2d')!.putImageData(pixels, 0, 0)
   colorImages.set(chart, image)
   return image
+}
+
+function rgb(color: string) {
+  return [1, 3, 5].map((start) => parseInt(color.slice(start, start + 2), 16))
+}
+
+/** The fabric under the chart, which blank cells show. */
+const fabricLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, project }) => {
+  context.fillStyle = project?.fabricColor ?? WHITE_FABRIC
+  context.fillRect(-x * cellSize, -y * cellSize, chart.width * cellSize, chart.height * cellSize)
+}
+
+/** Each project's done stitches, one pixel a stitch, made each time its progress changes. */
+const doneImages = new WeakMap<Uint8Array, { color: string; image: HTMLCanvasElement }>()
+
+/** Done stitches in the fabric color, one pixel a stitch, so zoomed out they're dimmed in one call. */
+function doneImage({ progress, fabricColor }: ProjectLook, chart: Chart) {
+  const made = doneImages.get(progress)
+  if (made?.color === fabricColor) return made.image
+  const fabric = [...rgb(fabricColor), 255]
+  const pixels = new ImageData(chart.width, chart.height)
+  progress.forEach((state, i) => state === DONE && pixels.data.set(fabric, i * 4))
+  const image = document.createElement('canvas')
+  image.width = chart.width
+  image.height = chart.height
+  image.getContext('2d')!.putImageData(pixels, 0, 0)
+  doneImages.set(progress, { color: fabricColor, image })
+  return image
+}
+
+/** Done stitches, dimmed by a wash of the fabric color. */
+const progressLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, cells, project }) => {
+  if (!project) return
+  context.save()
+  context.globalAlpha = DONE_DIMMING
+  if (!detailAt(cellSize).symbols) {
+    context.imageSmoothingEnabled = false
+    context.drawImage(
+      doneImage(project, chart),
+      -x * cellSize,
+      -y * cellSize,
+      chart.width * cellSize,
+      chart.height * cellSize,
+    )
+  } else {
+    context.fillStyle = project.fabricColor
+    for (let row = cells.top; row < cells.bottom; row++) {
+      for (let column = cells.left; column < cells.right; column++) {
+        if (project.progress[row * chart.width + column] !== DONE) continue
+        context.fillRect((column - x) * cellSize, (row - y) * cellSize, cellSize, cellSize)
+      }
+    }
+  }
+  context.restore()
+}
+
+/** The selection layer: the cell cursor, the one cell the keyboard acts on. */
+const selectionLayer: Layer = (context, { viewport: { x, y, cellSize }, project }) => {
+  const cursor = project?.cursor
+  if (!cursor) return
+  // Zoomed out, a box bigger than the cell, so it can still be seen.
+  const size = Math.max(cellSize, CURSOR.smallest)
+  const left = (cursor.column - x) * cellSize + (cellSize - size) / 2
+  const top = (cursor.row - y) * cellSize + (cellSize - size) / 2
+  context.strokeStyle = CURSOR.color
+  context.lineWidth = CURSOR.width
+  context.strokeRect(left, top, size, size)
 }
 
 /** Each cell as its display style draws it, with its symbol as printed where the source PDF gave one. */
@@ -68,6 +153,8 @@ const cellsLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, cells
   for (let row = top; row < bottom; row++) {
     for (let column = left; column < right; column++) {
       const entry = chart.cells[row * chart.width + column]
+      // Blank cells show the fabric.
+      if (entry === 0) continue
       const { fill, symbol } = cellLook(entry === 0 ? undefined : chart.legend[entry - 1], style, detail)
       const px = (column - x) * cellSize
       const py = (row - y) * cellSize
@@ -114,9 +201,9 @@ const gridLayer: Layer = (context, { viewport: { x, y, cellSize }, cells: { left
   }
 }
 
-const LAYERS: Layer[] = [cellsLayer, gridLayer]
+const LAYERS: Layer[] = [fabricLayer, cellsLayer, progressLayer, gridLayer, selectionLayer]
 
-/** Draws the visible part of `chart` in `style` on a canvas `size` CSS pixels across. */
+/** Draws the visible part of `chart` in `style` on a canvas `size` CSS pixels across, with the project's progress if there is one. */
 export function drawChart(
   context: CanvasRenderingContext2D,
   chart: Chart,
@@ -124,8 +211,9 @@ export function drawChart(
   size: Size,
   style: DisplayStyle,
   symbols: SymbolImages,
+  project?: ProjectLook,
 ) {
   context.clearRect(0, 0, size.width, size.height)
-  const scene = { chart, viewport, cells: visibleCells(viewport, size, chart), style, symbols }
+  const scene = { chart, viewport, cells: visibleCells(viewport, size, chart), style, symbols, project }
   for (const layer of LAYERS) layer(context, scene)
 }

@@ -1,6 +1,7 @@
 // Where the Workspace keeps its state between visits: IndexedDB, through Dexie.
 import { Dexie, type EntityTable } from 'dexie'
 import type { Chart } from './chart.ts'
+import type { Project } from './project.ts'
 
 /** Which IndexedDB to use: the browser's in the app, an in-memory one in tests. */
 export interface Database {
@@ -22,6 +23,7 @@ interface StoredSourcePdf {
 export class Storage extends Dexie {
   sourcePdfs!: EntityTable<StoredSourcePdf, 'sha256'>
   charts!: EntityTable<Chart, 'id'>
+  projects!: EntityTable<Project, 'id'>
 
   constructor(database: Database) {
     super(DATABASE_NAME, database)

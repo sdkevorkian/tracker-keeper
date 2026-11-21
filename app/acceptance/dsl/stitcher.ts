@@ -13,14 +13,18 @@ import {
 } from '../../tests/support/chartPdf.ts'
 import type {
   DeleteFrom,
+  Direction,
   DisplayStyle,
   Driver,
   ShownChart,
   ShownImportIssue,
   ShownLegendEntry,
+  ShownProject,
   ShownStitches,
   ShownSymbols,
   SourcePagePlacement,
+  Stitch,
+  UndoControl,
   ViewControl,
 } from '../drivers/driver.ts'
 
@@ -229,6 +233,106 @@ export class Stitcher {
   /** The charts the home screen lists, by title, in the order it lists them. */
   async seesChartsListed(expected: string[]) {
     deepStrictEqual(await this.driver.listedCharts(), expected)
+  }
+
+  /** Starts a project on the chart they're looking at, which opens it. */
+  async startsProject() {
+    await this.driver.startProject()
+  }
+
+  async renamesProject(name: string) {
+    await this.driver.renameProject(name)
+  }
+
+  async marksStitchDone(stitch: Stitch) {
+    await this.driver.markStitch(stitch, true)
+  }
+
+  async marksStitchNotDone(stitch: Stitch) {
+    await this.driver.markStitch(stitch, false)
+  }
+
+  /** Drags from one stitch to another along a row or column, marking the run done. */
+  async marksRunDone(from: Stitch, to: Stitch) {
+    await this.driver.markRun(from, to)
+  }
+
+  /** Undoes their last mark. With the Undo button by default. */
+  async undoes(using: UndoControl = 'buttons') {
+    await this.driver.undo(using)
+  }
+
+  async redoes(using: UndoControl = 'buttons') {
+    await this.driver.redo(using)
+  }
+
+  async seesUndoAndRedoOffered(expected: { undo: boolean; redo: boolean }) {
+    deepStrictEqual(await this.driver.undoAndRedoOffered(), expected)
+  }
+
+  /** Presses an arrow key on the chart, `times` times. With `marking`, holds Shift to mark a run as it goes. */
+  async movesCursor(direction: Direction, { times = 1, marking = false }: { times?: number; marking?: boolean } = {}) {
+    for (let press = 0; press < times; press++) await this.driver.moveCursor(direction, marking)
+  }
+
+  async pressesSpace() {
+    await this.driver.pressSpace()
+  }
+
+  async seesCursorOn(expected: Stitch) {
+    deepStrictEqual(await this.driver.cursor(), expected)
+  }
+
+  /** The stitch under the cell cursor is among those on screen. */
+  async seesCursorInView() {
+    const [across, down] = await this.driver.cursor()
+    const shown = await this.driver.shownStitches()
+    ok(
+      across >= shown.across[0] && across <= shown.across[1] && down >= shown.down[0] && down <= shown.down[1],
+      `The cursor is on stitch ${across}, ${down}, but the view shows ${shown.across} across and ${shown.down} down`,
+    )
+  }
+
+  /** How much of the project they're in is done, in whole percent. */
+  async seesPercentDone(expected: number) {
+    deepStrictEqual(await this.driver.percentDone(), expected)
+  }
+
+  async pressesKey(key: string) {
+    await this.driver.pressKey(key)
+  }
+
+  async opensShortcutHelp(using: 'keyboard' | 'button') {
+    await this.driver.openShortcutHelp(using)
+  }
+
+  /** The open shortcut help lists a shortcut for each of these. */
+  async seesShortcutsFor(expected: string[]) {
+    const listed = await this.driver.shortcutHelp()
+    ok(listed, 'The shortcut help is not open')
+    const missing = expected.filter((does) => !listed.includes(does))
+    deepStrictEqual(missing, [], `The shortcut help doesn't list ${missing.join(', ')}`)
+  }
+
+  async closesShortcutHelp() {
+    await this.driver.closeShortcutHelp()
+  }
+
+  async seesNoShortcutHelp() {
+    deepStrictEqual(await this.driver.shortcutHelp(), undefined)
+  }
+
+  async focusesProjectName() {
+    await this.driver.focusProjectName()
+  }
+
+  async seesFocusBackOnTheShortcutsButton() {
+    ok(await this.driver.shortcutButtonFocused(), 'The Keyboard shortcuts button does not have focus')
+  }
+
+  /** The projects Your charts lists under a chart, in its order. */
+  async seesProjectsListed(chartTitle: string, expected: ShownProject[]) {
+    deepStrictEqual(await this.driver.listedProjects(chartTitle), expected)
   }
 
   async goesToYourCharts() {
