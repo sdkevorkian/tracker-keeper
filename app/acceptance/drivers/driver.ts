@@ -32,6 +32,14 @@ export type Capability =
   | 'symbol images'
   /** Moving the view with the buttons beside the chart and the keyboard, not only the pointer. */
   | 'view controls'
+  /** Starting projects on a chart, marking stitches in them, and reading their progress. */
+  | 'projects'
+  /** Reading whether Undo and Redo are offered. */
+  | 'undo buttons'
+  /** Moving a cell cursor over the chart with the keyboard, and marking with it. */
+  | 'cell cursor'
+  /** Opening the list of keyboard shortcuts. */
+  | 'shortcut help'
 
 /** Stitches the stitcher can see, numbered from 1 like a printed chart's margins. Ends are inclusive. */
 export interface ShownStitches {
@@ -55,6 +63,19 @@ export interface ShownChart extends Size {
   /** Each legend entry's thread, such as 'DMC 310', and how many of the chart's stitches use it. Left out when a case doesn't care. */
   legend?: { thread: string; stitches: number }[]
 }
+
+/** One project as the home screen lists it. */
+export interface ShownProject {
+  name: string
+  /** Whole percent of the chart's stitches done, rounded down. */
+  percentDone: number
+}
+
+/** A way an arrow key moves the cell cursor. */
+export type Direction = 'left' | 'right' | 'up' | 'down'
+
+/** How the stitcher undoes and redoes: the buttons or the keyboard. */
+export type UndoControl = 'buttons' | 'keyboard'
 
 /** Where the stitcher deletes a chart from. */
 export type DeleteFrom = 'Your charts' | 'its page'
@@ -107,6 +128,41 @@ export interface Driver {
   goToYourCharts(): Promise<void>
   /** Opens the chart with this title from the home screen. */
   openChart(title: string): Promise<void>
+  /** Starts a project on the chart the stitcher is looking at, and opens it. */
+  startProject(): Promise<void>
+  /** Gives the open project a name of the stitcher's own. */
+  renameProject(name: string): Promise<void>
+  /** Marks one stitch of the open project done or not done. */
+  markStitch(stitch: Stitch, done: boolean): Promise<void>
+  /** Marks the stitches in a straight row or column from one stitch to another done, as one drag would. */
+  markRun(from: Stitch, to: Stitch): Promise<void>
+  /** Undoes the open project's last mark, with the Undo button or the keyboard. */
+  undo(using: UndoControl): Promise<void>
+  redo(using: UndoControl): Promise<void>
+  /** Whether Undo and Redo are offered in the open project. */
+  undoAndRedoOffered(): Promise<{ undo: boolean; redo: boolean }>
+  /** Presses an arrow key on the chart, holding Shift to mark as the cursor moves. */
+  moveCursor(direction: Direction, marking: boolean): Promise<void>
+  /** Presses Space on the chart. */
+  pressSpace(): Promise<void>
+  /** The stitch the cell cursor is on. */
+  cursor(): Promise<Stitch>
+  /** How much of the open project is done, in whole percent. */
+  percentDone(): Promise<number>
+  /** Presses a key with focus where it is now. */
+  pressKey(key: string): Promise<void>
+  /** Opens the shortcut help with the `?` key or the Keyboard shortcuts button. */
+  openShortcutHelp(using: 'keyboard' | 'button'): Promise<void>
+  /** Each shortcut the open help lists, as its keys and what it does, or undefined when the help isn't open. */
+  shortcutHelp(): Promise<string[] | undefined>
+  /** Closes the shortcut help with Escape. */
+  closeShortcutHelp(): Promise<void>
+  /** Puts focus in the open project's name field. */
+  focusProjectName(): Promise<void>
+  /** Whether the Keyboard shortcuts button has focus. */
+  shortcutButtonFocused(): Promise<boolean>
+  /** The projects the home screen lists under the chart with this title, in its order. */
+  listedProjects(chartTitle: string): Promise<ShownProject[]>
   /**
    * Deletes the chart with this title, confirming when asked: from Your charts,
    * or from its own page, which the stitcher is on.

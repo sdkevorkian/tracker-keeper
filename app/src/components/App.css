@@ -193,3 +193,102 @@ h2 {
   justify-content: flex-end;
   gap: 8px;
 }
+
+.app-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* A chart's projects, indented under it, without the chart list's own rules. */
+.chart-library .project-list {
+  margin: 0 0 12px 24px;
+  border-top: 0;
+}
+
+.project-list-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 4px;
+}
+
+.project-list-item a {
+  color: var(--text-h);
+}
+
+.project-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin-top: 16px;
+}
+
+.project-details label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.project-details input[type='text'] {
+  padding: 4px 8px;
+  border: 1px solid var(--text);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  font-weight: normal;
+}
+
+.project-details p {
+  margin: 0;
+}
+
+.percent-done {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.chart-view-marking {
+  cursor: crosshair;
+}
+
+.shortcut-help {
+  max-width: min(520px, calc(100vw - 32px));
+}
+
+.shortcut-help h3 {
+  margin: 16px 0 4px;
+  font-size: 1rem;
+}
+
+.shortcut-help dl {
+  margin: 0;
+}
+
+.shortcut {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.shortcut dt {
+  white-space: nowrap;
+}
+
+.shortcut dd {
+  margin: 0;
+  text-align: right;
+}
+
+kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--text);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.9em;
+}

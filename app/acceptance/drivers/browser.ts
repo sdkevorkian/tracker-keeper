@@ -6,20 +6,32 @@ import { expect, type Page } from '@playwright/test'
 import type {
   Capability,
   DeleteFrom,
+  Direction,
   DisplayStyle,
   Driver,
   ShownChart,
   ShownImportIssue,
+  ShownProject,
   ShownStitches,
   SourcePagePlacement,
+  Stitch,
+  UndoControl,
   ViewControl,
 } from './driver.ts'
+import { fitChart } from '../../src/view/viewport.ts'
 
 /** How long the app lets an import run before giving up on it. */
 const IMPORT_TIMEOUT_MS = 60_000
 
 /** More presses of Tab than it takes to reach the chart from the top of the page. */
 const MOST_TABS_TO_CHART = 20
+
+/** The whole percent in a text such as "25% done". */
+function percentOf(text: string | null) {
+  const percent = /(\d+)% done/.exec(text ?? '')
+  if (!percent) throw new Error(`No percent done in "${text}"`)
+  return Number(percent[1])
+}
 
 /** The page, with the long tasks seen since the last import began. */
 type WatchedWindow = Window & { longTasks?: number[] }
@@ -39,6 +51,10 @@ export class BrowserDriver implements Driver {
     'display styles',
     'symbol images',
     'view controls',
+    'projects',
+    'undo buttons',
+    'cell cursor',
+    'shortcut help',
   ])
 
   private page: Page
@@ -79,7 +95,8 @@ export class BrowserDriver implements Driver {
   async listedCharts() {
     const list = this.page.getByRole('list', { name: 'Your charts' })
     await expect(list).toBeVisible()
-    return list.getByRole('link').allTextContents()
+    // Each chart's link, not its projects' links under it.
+    return list.locator('a[href^="#/charts/"]').allTextContents()
   }
 
   async goToYourCharts() {
@@ -89,6 +106,145 @@ export class BrowserDriver implements Driver {
   async openChart(title: string) {
     await this.page.getByRole('list', { name: 'Your charts' }).getByRole('link', { name: title, exact: true }).click()
     await expect(this.chart()).toBeVisible()
+  }
+
+  async startProject() {
+    await this.page.getByRole('button', { name: 'Start project' }).click()
+    await expect(this.percentDoneText()).toBeVisible()
+  }
+
+  async renameProject(name: string) {
+    await this.page.getByRole('textbox', { name: 'Project name' }).fill(name)
+  }
+
+  async markStitch(stitch: Stitch) {
+    // A click toggles the stitch, so marking it done or not done is the same click.
+    const before = await this.percentDoneText().textContent()
+    const { x, y } = await this.stitchPoint(stitch)
+    await this.page.mouse.click(x, y)
+    await expect(this.percentDoneText()).not.toHaveText(before ?? '')
+  }
+
+  async markRun(from: Stitch, to: Stitch) {
+    const before = await this.percentDoneText().textContent()
+    const start = await this.stitchPoint(from)
+    const end = await this.stitchPoint(to)
+    await this.page.mouse.move(start.x, start.y)
+    await this.page.mouse.down()
+    await this.page.mouse.move(end.x, end.y, { steps: 10 })
+    await this.page.mouse.up()
+    await expect(this.percentDoneText()).not.toHaveText(before ?? '')
+  }
+
+  async undo(using: UndoControl) {
+    const before = await this.percentDoneText().textContent()
+    if (using === 'buttons') await this.page.getByRole('button', { name: 'Undo', exact: true }).click()
+    else await this.page.keyboard.press('Control+z')
+    await expect(this.percentDoneText()).not.toHaveText(before ?? '')
+  }
+
+  async redo(using: UndoControl) {
+    const before = await this.percentDoneText().textContent()
+    if (using === 'buttons') await this.page.getByRole('button', { name: 'Redo', exact: true }).click()
+    else await this.page.keyboard.press('Control+Shift+z')
+    await expect(this.percentDoneText()).not.toHaveText(before ?? '')
+  }
+
+  async undoAndRedoOffered() {
+    const offered = async (name: string) => (await this.page.getByRole('button', { name, exact: true }).count()) > 0
+    return { undo: await offered('Undo'), redo: await offered('Redo') }
+  }
+
+  async moveCursor(direction: Direction, marking: boolean) {
+    const key = `Arrow${direction[0].toUpperCase()}${direction.slice(1)}`
+    await this.pressOnChart(marking ? `Shift+${key}` : key)
+  }
+
+  async pressSpace() {
+    await this.pressOnChart('Space')
+  }
+
+  async cursor(): Promise<Stitch> {
+    const label = await this.chartLabel()
+    const cursor = /cursor on stitch (\d+) across and (\d+) down/.exec(label)
+    if (!cursor) throw new Error(`The chart's label doesn't say where the cell cursor is: "${label}"`)
+    return [Number(cursor[1]), Number(cursor[2])]
+  }
+
+  async pressKey(key: string) {
+    await this.page.keyboard.press(key)
+  }
+
+  async openShortcutHelp(using: 'keyboard' | 'button') {
+    if (using === 'button') await this.page.getByRole('button', { name: 'Keyboard shortcuts' }).click()
+    else await this.page.keyboard.press('?')
+    await expect(this.shortcutDialog()).toBeVisible()
+  }
+
+  async shortcutHelp() {
+    if (!(await this.shortcutDialog().isVisible())) return undefined
+    return this.shortcutDialog().getByRole('definition').allTextContents()
+  }
+
+  async closeShortcutHelp() {
+    await this.page.keyboard.press('Escape')
+    await expect(this.shortcutDialog()).toBeHidden()
+  }
+
+  async focusProjectName() {
+    await this.page.getByRole('textbox', { name: 'Project name' }).focus()
+  }
+
+  async shortcutButtonFocused() {
+    return this.page
+      .getByRole('button', { name: 'Keyboard shortcuts' })
+      .evaluate((button) => button === document.activeElement)
+  }
+
+  private shortcutDialog() {
+    return this.page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+  }
+
+  async percentDone() {
+    return percentOf(await this.percentDoneText().textContent())
+  }
+
+  async listedProjects(chartTitle: string): Promise<ShownProject[]> {
+    await expect(this.page.getByRole('list', { name: 'Your charts' })).toBeVisible()
+    const list = this.page.getByRole('list', { name: `Projects of ${chartTitle}`, exact: true })
+    if ((await list.count()) === 0) return []
+    return Promise.all(
+      (await list.getByRole('listitem').all()).map(async (item) => ({
+        name: (await item.getByRole('link').textContent()) ?? '',
+        percentDone: percentOf(await item.textContent()),
+      })),
+    )
+  }
+
+  /** The text saying how much of the open project is done. */
+  private percentDoneText() {
+    return this.page.getByRole('main').getByText(/^\d+% done$/)
+  }
+
+  /**
+   * Where a stitch is on screen, with the whole chart fitted to the canvas as it is
+   * when a project opens. Each stitch is drawn where the app's own fitting puts it.
+   */
+  private async stitchPoint([across, down]: Stitch) {
+    const chart = await this.shownChartSize()
+    // A click off the window's edge doesn't reach the page.
+    await this.chart().scrollIntoViewIfNeeded()
+    const canvas = await this.chart().evaluate((element) => {
+      const box = element.getBoundingClientRect()
+      return {
+        left: box.left + element.clientLeft,
+        top: box.top + element.clientTop,
+        width: element.clientWidth,
+        height: element.clientHeight,
+      }
+    })
+    const { x, y, cellSize } = fitChart(canvas, chart)
+    return { x: canvas.left + (across - 0.5 - x) * cellSize, y: canvas.top + (down - 0.5 - y) * cellSize }
   }
 
   async deleteChart(title: string, from: DeleteFrom) {
@@ -340,6 +496,8 @@ export class BrowserDriver implements Driver {
   }
 
   private async chartCentre() {
+    // The pointer can't reach the chart off the window's edge.
+    await this.chart().scrollIntoViewIfNeeded()
     const box = await this.chart().boundingBox()
     if (!box) throw new Error('The chart is not on screen')
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 }

@@ -2,10 +2,13 @@
 // only sends commands and draws the state it subscribes to.
 import type { Chart } from './chart.ts'
 import type { ReadCharts } from './import/readCharts.ts'
+import { DEFAULT_DONE_COLOR, DONE, NOT_DONE, WHITE_FABRIC, type Project } from './project.ts'
+import type { EntityTable, IDType } from 'dexie'
 import { openStorage, type Database } from './storage.ts'
 
 export interface WorkspaceState {
   charts: ReadonlyMap<string, Chart>
+  projects: ReadonlyMap<string, Project>
 }
 
 export interface Workspace {
@@ -16,7 +19,25 @@ export interface Workspace {
   importPdf(bytes: Uint8Array): Promise<string>
   /** Gives a chart the stitcher's own title, replacing any from its source PDF. */
   renameChart(chartId: string, title: string): void
-  /** Deletes a chart and its corrections. It can't be undone. */
+  /** Starts a project on a chart, named after it, and returns the project's ID. */
+  startProject(chartId: string): string
+  /** Gives a project the stitcher's own name. */
+  renameProject(projectId: string, name: string): void
+  /** Sets the color of a project's fabric, as `#rrggbb`. */
+  setFabricColor(projectId: string, color: string): void
+  /** Sets the color a project's done stitches are marked in, as `#rrggbb`. */
+  setDoneColor(projectId: string, color: string): void
+  /** Marks cells of a project done or not done. Blank cells are left as they are. */
+  markCells(projectId: string, cells: readonly number[], done: boolean): void
+  /** Takes back a project's last mark, if it has one to take back. */
+  undo(projectId: string): void
+  /** Makes the last mark undone in a project again, if no new mark came since. */
+  redo(projectId: string): void
+  /** Whether a project has a mark to undo since the app opened. */
+  canUndo(projectId: string): boolean
+  /** Whether a project has an undone mark to redo. */
+  canRedo(projectId: string): boolean
+  /** Deletes a chart and its corrections. It can't be undone, so a chart with projects is refused. */
   deleteChart(chartId: string): void
   /** The bytes of a chart's source PDF. */
   sourcePdf(chartId: string): Promise<Uint8Array>
@@ -31,6 +52,25 @@ export function listCharts({ charts }: WorkspaceState): Chart[] {
       return Number(a.title === undefined) - Number(b.title === undefined)
     return a.title.localeCompare(b.title)
   })
+}
+
+/** A chart's projects, oldest first. */
+export function listProjects({ projects }: WorkspaceState, chartId: string): Project[] {
+  return [...projects.values()]
+    .filter((project) => project.chartId === chartId)
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+}
+
+/** How much of the chart's stitches are done, in whole percent rounded down, so 100 means every one. Blank cells don't count. */
+export function percentDone(chart: Chart, project: Project) {
+  let stitches = 0
+  let done = 0
+  chart.cells.forEach((entry, cell) => {
+    if (entry === 0) return
+    stitches++
+    if (project.progress[cell] === DONE) done++
+  })
+  return stitches === 0 ? 0 : Math.floor((done * 100) / stitches)
 }
 
 /** Far larger than any chart PDF, but small enough that reading one can't exhaust memory. */
@@ -56,14 +96,13 @@ export interface StoredWorkspaceOptions extends WorkspaceOptions {
 export async function openWorkspace({ database, ...options }: StoredWorkspaceOptions): Promise<Workspace> {
   const storage = await openStorage(database)
   const charts = new Map((await storage.charts.toArray()).map((chart) => [chart.id, chart]))
+  const projects = new Map((await storage.projects.toArray()).map((project) => [project.id, project]))
   return createWorkspace(options, {
-    state: { charts },
+    state: { charts, projects },
     save: (before, after) =>
-      storage.transaction('rw', storage.charts, async () => {
-        const changed = [...after.charts.values()].filter((chart) => before.charts.get(chart.id) !== chart)
-        const deleted = [...before.charts.keys()].filter((id) => !after.charts.has(id))
-        await storage.charts.bulkPut(changed)
-        await storage.charts.bulkDelete(deleted)
+      storage.transaction('rw', storage.charts, storage.projects, async () => {
+        await saveChanges(storage.charts, before.charts, after.charts)
+        await saveChanges(storage.projects, before.projects, after.projects)
       }),
     addSourcePdf: async (pdfSha256, bytes) => {
       await storage.sourcePdfs.put({ sha256: pdfSha256, bytes })
@@ -73,6 +112,16 @@ export async function openWorkspace({ database, ...options }: StoredWorkspaceOpt
     },
     sourcePdf: async (pdfSha256) => (await storage.sourcePdfs.get(pdfSha256))?.bytes,
   })
+}
+
+/** Saves the records that changed between two states of one kind of record, and deletes those removed. */
+async function saveChanges<T extends { id: string }>(
+  table: EntityTable<T, 'id'>,
+  before: ReadonlyMap<string, T>,
+  after: ReadonlyMap<string, T>,
+) {
+  await table.bulkPut([...after.values()].filter((record) => before.get(record.id) !== record))
+  await table.bulkDelete([...before.keys()].filter((id) => !after.has(id)) as IDType<T, 'id'>[])
 }
 
 /** Where a Workspace keeps its state and source PDFs. */
@@ -90,7 +139,7 @@ interface Store {
 function memoryStore(): Store {
   const sourcePdfs = new Map<string, Uint8Array>()
   return {
-    state: { charts: new Map() },
+    state: { charts: new Map(), projects: new Map() },
     save: async () => {},
     addSourcePdf: async (pdfSha256, bytes) => {
       sourcePdfs.set(pdfSha256, bytes)
@@ -102,11 +151,42 @@ function memoryStore(): Store {
   }
 }
 
+/** One mark, as the cells it changed and their states before and after. */
+interface Mark {
+  cells: number[]
+  before: number[]
+  after: number[]
+}
+
+/** A project's marks that can be undone, most recent last, and those undone that can be redone. */
+interface History {
+  undo: Mark[]
+  redo: Mark[]
+}
+
 /** A Workspace. Without `store` it starts empty and keeps nothing once it's gone. */
 export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store = memoryStore()): Workspace {
   let state = store.state
   const listeners = new Set<(state: WorkspaceState) => void>()
   let saved = Promise.resolve()
+  // Kept only while the app is open: a reload starts every project with nothing to undo.
+  const histories = new Map<string, History>()
+  const historyOf = (projectId: string) => {
+    let history = histories.get(projectId)
+    if (!history) histories.set(projectId, (history = { undo: [], redo: [] }))
+    return history
+  }
+  /** Sets each of the mark's cells to its state `when`, and returns the project. */
+  const applyMark = (project: Project, mark: Mark, when: 'before' | 'after') => {
+    const progress = project.progress.slice()
+    mark.cells.forEach((cell, i) => (progress[cell] = mark[when][i]))
+    update({ ...state, projects: new Map(state.projects).set(project.id, { ...project, progress }) })
+  }
+  const projectOf = (projectId: string) => {
+    const project = state.projects.get(projectId)
+    if (!project) throw new Error('No such project')
+    return project
+  }
   /** Saves are made one after another, in the order of the changes. */
   const queue = (save: () => Promise<void>) => (saved = saved.then(save))
 
@@ -156,9 +236,82 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
       if (!chart) throw new Error('No such chart')
       update({ ...state, charts: new Map(state.charts).set(chartId, { ...chart, title }) })
     },
+    startProject(chartId) {
+      const chart = state.charts.get(chartId)
+      if (!chart) throw new Error('No such chart')
+      const id = crypto.randomUUID()
+      const project: Project = {
+        id,
+        chartId,
+        name: chart.title ?? 'Untitled chart',
+        startedAt: new Date().toISOString(),
+        fabricColor: WHITE_FABRIC,
+        doneColor: DEFAULT_DONE_COLOR,
+        progress: new Uint8Array(chart.cells.length).fill(NOT_DONE),
+      }
+      update({ ...state, projects: new Map(state.projects).set(id, project) })
+      return id
+    },
+    renameProject(projectId, name) {
+      const project = projectOf(projectId)
+      update({ ...state, projects: new Map(state.projects).set(projectId, { ...project, name }) })
+    },
+    setFabricColor(projectId, fabricColor) {
+      const project = projectOf(projectId)
+      update({ ...state, projects: new Map(state.projects).set(projectId, { ...project, fabricColor }) })
+    },
+    setDoneColor(projectId, doneColor) {
+      const project = projectOf(projectId)
+      update({ ...state, projects: new Map(state.projects).set(projectId, { ...project, doneColor }) })
+    },
+    markCells(projectId, cells, done) {
+      const project = projectOf(projectId)
+      const chart = state.charts.get(project.chartId)!
+      const to = done ? DONE : NOT_DONE
+      const changed = [...new Set(cells)].filter((cell) => chart.cells[cell] !== 0 && project.progress[cell] !== to)
+      // Nothing to undo, and nothing that should clear what can be redone.
+      if (changed.length === 0) return
+      const mark = {
+        cells: changed,
+        before: changed.map((cell) => project.progress[cell]),
+        after: changed.map(() => to),
+      }
+      const history = historyOf(projectId)
+      history.undo.push(mark)
+      history.redo = []
+      applyMark(project, mark, 'after')
+    },
+    undo(projectId) {
+      const project = projectOf(projectId)
+      const history = historyOf(projectId)
+      const mark = history.undo.pop()
+      if (!mark) return
+      history.redo.push(mark)
+      applyMark(project, mark, 'before')
+    },
+    redo(projectId) {
+      const project = projectOf(projectId)
+      const history = historyOf(projectId)
+      const mark = history.redo.pop()
+      if (!mark) return
+      history.undo.push(mark)
+      applyMark(project, mark, 'after')
+    },
+    canUndo(projectId) {
+      return (histories.get(projectId)?.undo.length ?? 0) > 0
+    },
+    canRedo(projectId) {
+      return (histories.get(projectId)?.redo.length ?? 0) > 0
+    },
     deleteChart(chartId) {
       const chart = state.charts.get(chartId)
       if (!chart) throw new Error('No such chart')
+      const projects = listProjects(state, chartId).length
+      if (projects > 0) {
+        throw new Error(
+          `This chart has ${projects} ${projects === 1 ? 'project' : 'projects'}. Delete ${projects === 1 ? 'it' : 'them'} first.`,
+        )
+      }
       const charts = new Map(state.charts)
       charts.delete(chartId)
       update({ ...state, charts })
