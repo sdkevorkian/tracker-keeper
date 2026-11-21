@@ -77,4 +77,35 @@ export default function viewControlCases(test: AcceptanceTest) {
       await stitcher.seesStitchesFurtherRightThanBefore()
     },
   )
+
+  test(
+    "reloading a chart's page keeps it zoomed and panned where it was",
+    { needs: ['import', 'reload', 'chart pages', 'pan and zoom'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ size: { width: 100, height: 100 } })
+      await stitcher.zoomsIn('pointer')
+      await stitcher.pansRight('pointer')
+      await stitcher.notesTheStitchesShown()
+
+      await stitcher.reloadsTheApp()
+
+      await stitcher.seesTheSameStitchesShown()
+    },
+  )
+
+  test(
+    "reloading a project's page keeps it zoomed and panned where it was",
+    { needs: ['import', 'reload', 'chart pages', 'pan and zoom', 'projects'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ size: { width: 100, height: 100 } })
+      await stitcher.startsProject()
+      await stitcher.zoomsIn('pointer')
+      await stitcher.pansRight('pointer')
+      await stitcher.notesTheStitchesShown()
+
+      await stitcher.reloadsTheApp()
+
+      await stitcher.seesTheSameStitchesShown()
+    },
+  )
 }

@@ -150,4 +150,20 @@ export default function projectCases(test: AcceptanceTest) {
       await stitcher.seesCursorInView()
     },
   )
+
+  test(
+    "reloading a project's page keeps the cell cursor where it was",
+    { needs: ['import', 'projects', 'cell cursor', 'reload', 'chart pages'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['####', '####'] })
+      await stitcher.startsProject()
+      await stitcher.tabsToTheChart()
+      await stitcher.movesCursor('right', { times: 2 })
+      await stitcher.movesCursor('down')
+
+      await stitcher.reloadsTheApp()
+
+      await stitcher.seesCursorOn([3, 2])
+    },
+  )
 }

@@ -474,6 +474,15 @@ export class Stitcher {
     await this.driver.dragChartLeft()
   }
 
+  /** Remembers what's on screen, to compare with later. */
+  async notesTheStitchesShown() {
+    this.shownBefore = await this.driver.shownStitches()
+  }
+
+  async seesTheSameStitchesShown() {
+    deepStrictEqual(await this.driver.shownStitches(), this.shownBefore)
+  }
+
   async seesStitchesFurtherRightThanBefore() {
     const before = this.shownBefore!
     const now = await this.driver.shownStitches()

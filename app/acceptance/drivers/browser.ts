@@ -496,6 +496,8 @@ export class BrowserDriver implements Driver {
   }
 
   private async chartCentre() {
+    // The pointer can't reach the chart off the window's edge.
+    await this.chart().scrollIntoViewIfNeeded()
     const box = await this.chart().boundingBox()
     if (!box) throw new Error('The chart is not on screen')
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 }

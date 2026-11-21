@@ -2,7 +2,7 @@
 // only sends commands and draws the state it subscribes to.
 import type { Chart } from './chart.ts'
 import type { ReadCharts } from './import/readCharts.ts'
-import { DONE, NOT_DONE, WHITE_FABRIC, type Project } from './project.ts'
+import { DEFAULT_DONE_COLOR, DONE, NOT_DONE, WHITE_FABRIC, type Project } from './project.ts'
 import type { EntityTable, IDType } from 'dexie'
 import { openStorage, type Database } from './storage.ts'
 
@@ -25,6 +25,8 @@ export interface Workspace {
   renameProject(projectId: string, name: string): void
   /** Sets the color of a project's fabric, as `#rrggbb`. */
   setFabricColor(projectId: string, color: string): void
+  /** Sets the color a project's done stitches are marked in, as `#rrggbb`. */
+  setDoneColor(projectId: string, color: string): void
   /** Marks cells of a project done or not done. Blank cells are left as they are. */
   markCells(projectId: string, cells: readonly number[], done: boolean): void
   /** Takes back a project's last mark, if it has one to take back. */
@@ -244,6 +246,7 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
         name: chart.title ?? 'Untitled chart',
         startedAt: new Date().toISOString(),
         fabricColor: WHITE_FABRIC,
+        doneColor: DEFAULT_DONE_COLOR,
         progress: new Uint8Array(chart.cells.length).fill(NOT_DONE),
       }
       update({ ...state, projects: new Map(state.projects).set(id, project) })
@@ -256,6 +259,10 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
     setFabricColor(projectId, fabricColor) {
       const project = projectOf(projectId)
       update({ ...state, projects: new Map(state.projects).set(projectId, { ...project, fabricColor }) })
+    },
+    setDoneColor(projectId, doneColor) {
+      const project = projectOf(projectId)
+      update({ ...state, projects: new Map(state.projects).set(projectId, { ...project, doneColor }) })
     },
     markCells(projectId, cells, done) {
       const project = projectOf(projectId)

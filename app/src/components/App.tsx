@@ -176,6 +176,7 @@ function ChartPage({
       {chart ? (
         <ChartView
           key={chart.id}
+          viewKey={`chart:${chart.id}`}
           chart={chart}
           sourcePdf={sourcePdf}
           onViewSourcePdf={(page) => openSourcePdf(sourcePdf, page)}
@@ -257,6 +258,14 @@ function ProjectPage({
             onChange={(event) => workspace.setFabricColor(project.id, event.target.value)}
           />
         </label>
+        <label>
+          Done color
+          <input
+            type="color"
+            value={project.doneColor}
+            onChange={(event) => workspace.setDoneColor(project.id, event.target.value)}
+          />
+        </label>
         <p className="project-started">Started {new Date(project.startedAt).toLocaleDateString()}</p>
         <p className="percent-done" aria-live="polite">
           {percentDone(chart, project)}% done
@@ -276,11 +285,13 @@ function ProjectPage({
       </div>
       <ChartView
         key={project.id}
+        viewKey={`project:${project.id}`}
         chart={chart}
         sourcePdf={sourcePdf}
         onViewSourcePdf={(page) => openSourcePdf(sourcePdf, page)}
         marking={{
           fabricColor: project.fabricColor,
+          doneColor: project.doneColor,
           progress: project.progress,
           onMark: (cells, done) => workspace.markCells(project.id, cells, done),
         }}

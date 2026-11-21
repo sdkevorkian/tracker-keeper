@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 import { cellAt, cellsBetween, cursorForKey, viewportShowing, type CellPosition } from '../view/cells.ts'
 import type { DisplayStyle } from '../view/cellLook.ts'
 import { drawChart } from '../view/draw.ts'
+import { loadCursor, loadView, saveCursor, saveView } from '../view/savedView.ts'
 import { pageForView } from '../view/sourcePage.ts'
 import { cutSymbolImages, type SymbolImages } from '../view/symbolImages.ts'
 import {
@@ -16,7 +17,6 @@ import {
   ZOOM_STEP,
   type Point,
   type Size,
-  type Viewport,
 } from '../view/viewport.ts'
 import type { Chart } from '../workspace/chart.ts'
 import { DONE, NOT_DONE } from '../workspace/project.ts'
@@ -29,6 +29,8 @@ const NO_SYMBOL_IMAGES: SymbolImages = new Map()
 /** What the chart view needs to mark stitches in a project. */
 export interface Marking {
   fabricColor: string
+  /** The color done stitches are marked in. */
+  doneColor: string
   /** One state per cell, as in a project's progress. */
   progress: Uint8Array
   /** Marks cells, as indexes into the chart's cells, done or not done, as one step to undo. */
@@ -52,6 +54,8 @@ interface ChartViewProps {
   onViewSourcePdf: (page: number | undefined) => void
   /** In a project, how stitches are marked. Without it the chart is only viewed. */
   marking?: Marking
+  /** What the view is saved under, so reopening this page shows the chart zoomed and panned as it was. */
+  viewKey: string
 }
 
 /** Where a pointer is on the canvas, in canvas pixels. */
@@ -69,11 +73,11 @@ function sameCell(a: CellPosition, b: CellPosition) {
  * In a project, a click or drag marks stitches instead of panning, until the stitcher switches to Pan, and the
  * arrow keys move a cell cursor that the keyboard marks with.
  */
-export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking }: ChartViewProps) {
+export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking, viewKey }: ChartViewProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState<Size>({ width: 0, height: 0 })
-  // Undefined until the stitcher pans or zooms; until then the whole chart is fitted to the canvas.
-  const [movedViewport, setViewport] = useState<Viewport>()
+  // Undefined until the stitcher pans or zooms, unless this page saved a view; until then the whole chart is fitted to the canvas.
+  const [movedViewport, setViewport] = useState(() => loadView(viewKey))
   const viewport = movedViewport ?? fitChart(size, chart)
   // Each finger or mouse button down on the chart, where it last was in canvas pixels. One drags; two pinch.
   const pointers = useRef(new Map<number, Point>())
@@ -82,7 +86,7 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking }: ChartV
   // Undefined while they're being cut.
   const [symbols, setSymbols] = useState<SymbolImages>()
   const [pointerMode, setPointerMode] = useState<PointerMode>('mark')
-  const [cursor, setCursor] = useState<CellPosition>({ column: 0, row: 0 })
+  const [cursor, setCursor] = useState<CellPosition>(() => loadCursor(viewKey, chart) ?? { column: 0, row: 0 })
   // Drawn from state, but read by the pointer handlers from the ref, since a quick click's
   // pointerup can arrive before React re-renders with its pointerdown's drag.
   const [markDrag, setMarkDragState] = useState<MarkDrag>()
@@ -104,6 +108,7 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking }: ChartV
     return shown
   }, [progress, markDrag, chartWidth])
   const fabricColor = marking?.fabricColor
+  const doneColor = marking?.doneColor
 
   // Cut each legend entry's symbol from the source PDF. If that fails, built-in symbols stand in for them all.
   // The chart view is keyed by chart, so this runs once per chart opened.
@@ -117,6 +122,12 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking }: ChartV
       current = false
     }
   }, [chart.legend, sourcePdf])
+
+  // Saved on every change, which is cheap, so a reload straight after panning or moving the cursor still finds them.
+  useEffect(() => saveView(viewKey, movedViewport), [viewKey, movedViewport])
+  useEffect(() => {
+    if (marking) saveCursor(viewKey, cursor)
+  }, [viewKey, cursor, marking])
 
   // Keep the canvas's pixels matched to its CSS size.
   useEffect(() => {
@@ -152,9 +163,11 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking }: ChartV
     if (!context) return
     context.setTransform(scale, 0, 0, scale, 0, 0)
     const project =
-      shownProgress && fabricColor !== undefined ? { progress: shownProgress, fabricColor, cursor } : undefined
+      shownProgress && fabricColor !== undefined && doneColor !== undefined
+        ? { progress: shownProgress, fabricColor, doneColor, cursor }
+        : undefined
     drawChart(context, chart, viewport, size, style, symbols ?? NO_SYMBOL_IMAGES, project)
-  }, [chart, viewport, size, style, symbols, shownProgress, fabricColor, cursor])
+  }, [chart, viewport, size, style, symbols, shownProgress, fabricColor, doneColor, cursor])
 
   /** Moves the cell cursor, scrolling the view to keep it in sight. */
   function moveCursor(to: CellPosition) {

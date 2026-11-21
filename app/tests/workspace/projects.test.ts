@@ -109,3 +109,17 @@ test('marking in a project that doesn’t exist is refused, without changing any
 
   expect(workspace.state).toBe(before)
 })
+
+test('a project has a done color of its own, separate from its fabric, kept after reopening', async () => {
+  const database = inMemoryDatabase()
+  const before = await open(database)
+  const projectId = before.startProject(await before.importPdf(chartPdf('###')))
+  expect(before.state.projects.get(projectId)!.doneColor).toBe('#5bbf6a')
+
+  before.setDoneColor(projectId, '#ff00aa')
+  await before.whenSaved()
+
+  const reopened = (await open(database)).state.projects.get(projectId)!
+  expect(reopened.doneColor).toBe('#ff00aa')
+  expect(reopened.fabricColor).toBe('#ffffff')
+})

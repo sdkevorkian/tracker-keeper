@@ -22,15 +22,16 @@ interface Scene {
   project?: ProjectLook
 }
 
-/** What a project adds to the chart: its fabric, which stitches are done, and the cell cursor. */
+/** What a project adds to the chart: its fabric, which stitches are done and the color they're marked in, and the cell cursor. */
 export interface ProjectLook {
   fabricColor: string
+  doneColor: string
   /** One state per cell, as in a project's progress. */
   progress: Uint8Array
   cursor?: CellPosition
 }
 
-/** How much of the fabric color is laid over a done stitch, so it shows dimmed but still readable. */
+/** How much of the done color is laid over a done stitch, so it stands out but its symbol stays readable. */
 const DONE_DIMMING = 0.7
 
 /** The cell cursor: the selection color, thick enough to see on any thread color. */
@@ -83,22 +84,22 @@ const fabricLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, proj
 /** Each project's done stitches, one pixel a stitch, made each time its progress changes. */
 const doneImages = new WeakMap<Uint8Array, { color: string; image: HTMLCanvasElement }>()
 
-/** Done stitches in the fabric color, one pixel a stitch, so zoomed out they're dimmed in one call. */
-function doneImage({ progress, fabricColor }: ProjectLook, chart: Chart) {
+/** Done stitches in the done color, one pixel a stitch, so zoomed out they're marked in one call. */
+function doneImage({ progress, doneColor }: ProjectLook, chart: Chart) {
   const made = doneImages.get(progress)
-  if (made?.color === fabricColor) return made.image
-  const fabric = [...rgb(fabricColor), 255]
+  if (made?.color === doneColor) return made.image
+  const done = [...rgb(doneColor), 255]
   const pixels = new ImageData(chart.width, chart.height)
-  progress.forEach((state, i) => state === DONE && pixels.data.set(fabric, i * 4))
+  progress.forEach((state, i) => state === DONE && pixels.data.set(done, i * 4))
   const image = document.createElement('canvas')
   image.width = chart.width
   image.height = chart.height
   image.getContext('2d')!.putImageData(pixels, 0, 0)
-  doneImages.set(progress, { color: fabricColor, image })
+  doneImages.set(progress, { color: doneColor, image })
   return image
 }
 
-/** Done stitches, dimmed by a wash of the fabric color. */
+/** Done stitches, under a wash of the done color. */
 const progressLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, cells, project }) => {
   if (!project) return
   context.save()
@@ -113,7 +114,7 @@ const progressLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, ce
       chart.height * cellSize,
     )
   } else {
-    context.fillStyle = project.fabricColor
+    context.fillStyle = project.doneColor
     for (let row = cells.top; row < cells.bottom; row++) {
       for (let column = cells.left; column < cells.right; column++) {
         if (project.progress[row * chart.width + column] !== DONE) continue
