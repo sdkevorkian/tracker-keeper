@@ -2,7 +2,10 @@
 // keeps the stitcher where they were. A hash needs no server rewrites, which GitHub Pages lacks.
 import { useSyncExternalStore } from 'react'
 
-export type Route = { page: 'your charts' } | { page: 'chart'; chartId: string }
+export type Route =
+  | { page: 'your charts' }
+  | { page: 'chart'; chartId: string }
+  | { page: 'project'; projectId: string }
 
 export const yourChartsHref = '#/'
 
@@ -10,9 +13,16 @@ export function chartHref(chartId: string) {
   return `#/charts/${encodeURIComponent(chartId)}`
 }
 
+export function projectHref(projectId: string) {
+  return `#/projects/${encodeURIComponent(projectId)}`
+}
+
 function routeOf(hash: string): Route {
   const chart = /^#\/charts\/([^/]+)$/.exec(hash)
-  return chart ? { page: 'chart', chartId: decodeURIComponent(chart[1]) } : { page: 'your charts' }
+  if (chart) return { page: 'chart', chartId: decodeURIComponent(chart[1]) }
+  const project = /^#\/projects\/([^/]+)$/.exec(hash)
+  if (project) return { page: 'project', projectId: decodeURIComponent(project[1]) }
+  return { page: 'your charts' }
 }
 
 function subscribe(listener: () => void) {
