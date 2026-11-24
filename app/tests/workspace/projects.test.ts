@@ -123,3 +123,38 @@ test('a project has a done color of its own, separate from its fabric, kept afte
   expect(reopened.doneColor).toBe('#ff00aa')
   expect(reopened.fabricColor).toBe('#ffffff')
 })
+
+test('a deleted project is gone, also after reopening, and its chart and other projects are untouched', async () => {
+  const database = inMemoryDatabase()
+  const before = await open(database)
+  const chartId = await before.importPdf(chartPdf('###'))
+  const abandoned = before.startProject(chartId)
+  const kept = before.startProject(chartId)
+  before.markCells(kept, [0], true)
+
+  before.deleteProject(abandoned)
+  await before.whenSaved()
+
+  const reopened = await open(database)
+  expect([...reopened.state.projects.keys()]).toEqual([kept])
+  expect([...reopened.state.projects.get(kept)!.progress]).toEqual([1, 0, 0])
+  expect(reopened.state.charts.has(chartId)).toBe(true)
+})
+
+test('once its last project is deleted, a chart can be deleted', async () => {
+  const { workspace, chartId, projectId } = await projectOn('###')
+
+  workspace.deleteProject(projectId)
+  workspace.deleteChart(chartId)
+
+  expect(workspace.state.charts.size).toBe(0)
+})
+
+test('deleting a project that doesn’t exist is refused, without changing anything', async () => {
+  const { workspace } = await projectOn('###')
+  const before = workspace.state
+
+  expect(() => workspace.deleteProject('no-such-project')).toThrow('No such project')
+
+  expect(workspace.state).toBe(before)
+})

@@ -166,4 +166,71 @@ export default function projectCases(test: AcceptanceTest) {
       await stitcher.seesCursorOn([3, 2])
     },
   )
+
+  test(
+    'a deleted project is gone from Your charts, also after a reload',
+    { needs: ['import', 'reload', 'chart library', 'projects', 'delete projects'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['#^.', '^##'], printedTitle: 'Winter Owl' })
+      await stitcher.startsProject()
+      await stitcher.renamesProject('First go')
+      await stitcher.goesToYourCharts()
+      await stitcher.opensChart('Winter Owl')
+      await stitcher.startsProject()
+      await stitcher.renamesProject('Second go')
+      await stitcher.goesToYourCharts()
+
+      await stitcher.deletesProject('First go')
+
+      await stitcher.seesProjectsListed('Winter Owl', [{ name: 'Second go', percentDone: 0 }])
+      await stitcher.reloadsTheApp()
+      await stitcher.seesProjectsListed('Winter Owl', [{ name: 'Second go', percentDone: 0 }])
+    },
+  )
+
+  test(
+    "deleting a project from its own page goes back to Your charts, where it isn't listed",
+    { needs: ['import', 'chart library', 'projects', 'delete projects'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['#^'], printedTitle: 'Winter Owl' })
+      await stitcher.startsProject()
+      await stitcher.renamesProject('First go')
+
+      await stitcher.deletesProject('First go', { from: 'its page' })
+
+      await stitcher.seesProjectsListed('Winter Owl', [])
+    },
+  )
+
+  test(
+    'deleting a project asks first, naming it and warning its progress will be lost, and cancelling keeps it',
+    { needs: ['import', 'chart library', 'projects', 'delete confirmation'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['#^'], printedTitle: 'Winter Owl' })
+      await stitcher.startsProject()
+      await stitcher.renamesProject('First go')
+      await stitcher.goesToYourCharts()
+
+      await stitcher.startsDeletingProject('First go')
+
+      await stitcher.isAskedToConfirmDeleting('First go', { losing: 'progress' })
+      await stitcher.cancelsDeleting()
+      await stitcher.seesProjectsListed('Winter Owl', [{ name: 'First go', percentDone: 0 }])
+    },
+  )
+
+  test(
+    'a chart with projects can’t be deleted, and the stitcher is told to delete its projects first',
+    { needs: ['import', 'chart library', 'projects', 'delete charts'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['#^'], printedTitle: 'Winter Owl' })
+      await stitcher.startsProject()
+      await stitcher.goesToYourCharts()
+
+      await stitcher.triesToDeleteChart('Winter Owl')
+
+      await stitcher.isToldToDeleteProjectsFirst(1)
+      await stitcher.seesChartsListed(['Winter Owl'])
+    },
+  )
 }

@@ -18,6 +18,35 @@ export default function libraryCases(test: AcceptanceTest) {
   )
 
   test(
+    'a renamed chart is listed by its new title, also after a reload',
+    { needs: ['import', 'reload', 'chart library', 'rename charts'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['#^.', '^##'], printedTitle: 'Winter Owl' })
+      await stitcher.importsChart({ grid: ['#^'], printedTitle: 'Autumn Fox' })
+      await stitcher.goesToYourCharts()
+
+      await stitcher.renamesChart('Winter Owl', 'Snowy Owl')
+
+      await stitcher.seesChartsListed(['Autumn Fox', 'Snowy Owl'])
+      await stitcher.reloadsTheApp()
+      await stitcher.seesChartsListed(['Autumn Fox', 'Snowy Owl'])
+    },
+  )
+
+  test(
+    'a chart can be renamed from its own page',
+    { needs: ['import', 'chart library', 'rename charts'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['#^'], printedTitle: 'Winter Owl' })
+
+      await stitcher.renamesChart('Winter Owl', 'Snowy Owl', { from: 'its page' })
+
+      await stitcher.goesToYourCharts()
+      await stitcher.seesChartsListed(['Snowy Owl'])
+    },
+  )
+
+  test(
     'a deleted chart is gone from Your charts, also after a reload',
     { needs: ['import', 'reload', 'chart library', 'delete charts'] },
     async ({ stitcher }) => {
@@ -71,6 +100,70 @@ export default function libraryCases(test: AcceptanceTest) {
       await stitcher.reloadsTheApp()
 
       await stitcher.seesChart({ width: 3, height: 2 })
+    },
+  )
+
+  test(
+    're-importing a PDF names the charts already imported from it, and opening one adds no chart',
+    { needs: ['import', 'chart library', 'imported before'] },
+    async ({ stitcher }) => {
+      const owl = { grid: ['#^.', '^##'], printedTitle: 'Winter Owl' }
+      await stitcher.importsChart(owl)
+      await stitcher.importsChart({ grid: ['#^'], printedTitle: 'Autumn Fox' })
+
+      await stitcher.importsTheSamePdfAgain(owl)
+
+      await stitcher.isToldItWasImportedBefore(['Winter Owl'])
+      await stitcher.opensChartImportedBefore('Winter Owl')
+      await stitcher.seesChart({ width: 3, height: 2 })
+      await stitcher.goesToYourCharts()
+      await stitcher.seesChartsListed(['Autumn Fox', 'Winter Owl'])
+    },
+  )
+
+  test(
+    'a separate copy of a PDF imported before is suggested a title that tells it apart',
+    { needs: ['import', 'chart library', 'imported before'] },
+    async ({ stitcher }) => {
+      const owl = { grid: ['#^.', '^##'], printedTitle: 'Winter Owl' }
+      await stitcher.importsChart(owl)
+      await stitcher.importsTheSamePdfAgain(owl)
+
+      await stitcher.importsSeparateCopy()
+
+      await stitcher.seesChart({ width: 3, height: 2 })
+      await stitcher.goesToYourCharts()
+      await stitcher.seesChartsListed(['Winter Owl', 'Winter Owl (2)'])
+    },
+  )
+
+  test(
+    'a separate copy takes the title the stitcher gives it',
+    { needs: ['import', 'chart library', 'imported before'] },
+    async ({ stitcher }) => {
+      const owl = { grid: ['#^.', '^##'], printedTitle: 'Winter Owl' }
+      await stitcher.importsChart(owl)
+      await stitcher.importsTheSamePdfAgain(owl)
+
+      await stitcher.importsSeparateCopy({ titled: 'Snowy Owl' })
+
+      await stitcher.goesToYourCharts()
+      await stitcher.seesChartsListed(['Snowy Owl', 'Winter Owl'])
+    },
+  )
+
+  test(
+    'cancelling the import of a PDF imported before adds nothing',
+    { needs: ['import', 'chart library', 'imported before'] },
+    async ({ stitcher }) => {
+      const owl = { grid: ['#^.', '^##'], printedTitle: 'Winter Owl' }
+      await stitcher.importsChart(owl)
+      await stitcher.importsTheSamePdfAgain(owl)
+
+      await stitcher.cancelsImport()
+
+      await stitcher.goesToYourCharts()
+      await stitcher.seesChartsListed(['Winter Owl'])
     },
   )
 }

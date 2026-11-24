@@ -62,3 +62,23 @@ test('a stitcher can rename a chart, replacing the title from its source PDF', a
   expect(workspace.state.charts.get(chartId)!.title).toBe('Autumn Fox')
   expect(heard).toEqual(['Autumn Fox'])
 })
+
+test('renaming a chart to an empty or blank title is refused, and the chart keeps its title', async () => {
+  const workspace = createWorkspace({ readCharts: readChartsInProcess })
+  const chartId = await workspace.importPdf(
+    buildChartPdf({
+      title: 'Autumn Fox',
+      fonts: { StitchSymbols: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSymbols', code: 0x41 } },
+      pages: [chart, legend],
+    }),
+  )
+  const before = workspace.state
+
+  for (const title of ['', '   ']) {
+    expect(() => workspace.renameChart(chartId, title)).toThrow("A chart's title can't be empty")
+  }
+
+  expect(workspace.state).toBe(before)
+  expect(workspace.state.charts.get(chartId)!.title).toBe('Autumn Fox')
+})

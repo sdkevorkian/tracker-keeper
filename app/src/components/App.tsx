@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent } from 'react'
 import type { Chart } from '../workspace/chart.ts'
 import type { Project } from '../workspace/project.ts'
-import { listCharts, listProjects, percentDone, type Workspace, type WorkspaceState } from '../workspace/workspace.ts'
+import {
+  listCharts,
+  listProjects,
+  percentDone,
+  suggestCopyTitle,
+  whyChartCantBeDeleted,
+  type Workspace,
+  type WorkspaceState,
+} from '../workspace/workspace.ts'
 import { ChartLibrary, type ListedChart } from './ChartLibrary.tsx'
 import { ChartView } from './ChartView.tsx'
-import { DeleteChartButton } from './DeleteChartButton.tsx'
+import { DeleteButton } from './DeleteButton.tsx'
+import { ImportedBeforeDialog } from './ImportedBeforeDialog.tsx'
+import { RenameChartButton } from './RenameChartButton.tsx'
 import { chartHref, goTo, projectHref, useRoute, yourChartsHref } from './route.ts'
 import { ShortcutHelp } from './ShortcutHelp.tsx'
 import { isTextField } from './shortcuts.ts'
@@ -31,6 +41,8 @@ function App({ workspace }: { workspace: Workspace }) {
   const route = useRoute()
   const [error, setError] = useState<string>()
   const [importing, setImporting] = useState(false)
+  /** A PDF imported before, while the stitcher chooses what to do with it. */
+  const [importingAgain, setImportingAgain] = useState<{ bytes: Uint8Array; chartIds: string[] }>()
   const [showingShortcuts, setShowingShortcuts] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -67,9 +79,25 @@ function App({ workspace }: { workspace: Workspace }) {
     setError(undefined)
     setImporting(true)
     try {
-      goTo(chartHref(await workspace.importPdf(new Uint8Array(await file.arrayBuffer()))))
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      // Asked about first, so importing the same PDF twice never quietly makes a duplicate.
+      const chartIds = await workspace.importedBefore(bytes)
+      if (chartIds.length > 0) setImportingAgain({ bytes, chartIds })
+      else goTo(chartHref(await workspace.importPdf(bytes)))
     } catch (refused) {
       setError(refused instanceof Error ? refused.message : String(refused))
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  /** Imports a separate copy of the PDF imported before. Rejects, for the dialog to show, when the titles are refused. */
+  async function importSeparateCopy(bytes: Uint8Array, titles: string[]) {
+    setImporting(true)
+    try {
+      const chartId = await workspace.importPdf(bytes, { titles })
+      setImportingAgain(undefined)
+      goTo(chartHref(chartId))
     } finally {
       setImporting(false)
     }
@@ -110,13 +138,25 @@ function App({ workspace }: { workspace: Workspace }) {
         {importing && (
           <p role="status" className="import-status">
             <span className="spinner" aria-hidden="true" />
-            Loading chartâ€¦
+            Loading chart…
           </p>
         )}
         {error && (
           <p role="alert" className="import-error">
             {error}
           </p>
+        )}
+        {importingAgain && (
+          <ImportedBeforeDialog
+            charts={importingAgain.chartIds.map((id) => state.charts.get(id)!)}
+            suggestedTitles={importingAgain.chartIds.map((id) => suggestCopyTitle(state, state.charts.get(id)!.title))}
+            onOpen={(chartId) => {
+              setImportingAgain(undefined)
+              goTo(chartHref(chartId))
+            }}
+            onCopy={(titles) => importSeparateCopy(importingAgain.bytes, titles)}
+            onCancel={() => setImportingAgain(undefined)}
+          />
         )}
         {!importing &&
           (route.page === 'chart' ? (
@@ -126,7 +166,9 @@ function App({ workspace }: { workspace: Workspace }) {
           ) : (
             <ChartLibrary
               charts={listedCharts(state)}
+              onRename={(chartId, title) => workspace.renameChart(chartId, title)}
               onDelete={(chartId) => attempt(() => workspace.deleteChart(chartId))}
+              onDeleteProject={(projectId) => attempt(() => workspace.deleteProject(projectId))}
             />
           ))}
       </main>
@@ -162,8 +204,11 @@ function ChartPage({
             >
               Start project
             </button>
-            <DeleteChartButton
-              chart={chart}
+            <RenameChartButton chart={chart} onRename={(title) => workspace.renameChart(chart.id, title)} />
+            <DeleteButton
+              name={chart.title ?? 'Untitled chart'}
+              losing="Its corrections"
+              refusal={whyChartCantBeDeleted(workspace.state, chart.id)}
               onDelete={() => {
                 // Away from its page first, so the page never shows the chart missing.
                 goTo(yourChartsHref)
@@ -197,6 +242,7 @@ function listedCharts(state: WorkspaceState): ListedChart[] {
       name: project.name,
       percentDone: percentDone(chart, project),
     })),
+    deleteRefusal: whyChartCantBeDeleted(state, chart.id),
   }))
 }
 
@@ -240,6 +286,17 @@ function ProjectPage({
         <a className="button" href={chartHref(chart.id)}>
           {chart.title ?? 'Untitled chart'}
         </a>
+        <DeleteButton
+          name={project.name}
+          // A new project has its chart's name, so "Delete Winter Owl" could be taken for the chart.
+          label={`Delete project ${project.name}`}
+          losing="Its progress"
+          onDelete={() => {
+            // Away from its page first, so the page never shows the project missing.
+            goTo(yourChartsHref)
+            workspace.deleteProject(project.id)
+          }}
+        />
       </div>
       <div className="project-details">
         <label>

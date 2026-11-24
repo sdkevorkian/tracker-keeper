@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App from './App.tsx'
 import { createWorkspace } from '../workspace/workspace.ts'
@@ -8,6 +8,7 @@ import { buildChartPdf } from '../../tests/support/chartPdf.ts'
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal
   delete document.documentElement.dataset.theme
   window.location.hash = ''
 })
@@ -123,4 +124,37 @@ test('while a chart imports, the stitcher sees it loading instead of the chart b
   finish()
   await screen.findByRole('img', { name: /Chart, 3 by 1 stitches/ })
   expect(screen.queryByRole('status')).toBeNull()
+})
+
+test('renaming a chart to a blank title is refused with a message, and the chart keeps its title', async () => {
+  const workspace = createWorkspace({ readCharts: readChartsInProcess })
+  await workspace.importPdf(
+    buildChartPdf({
+      title: 'Winter Owl',
+      fonts: { StitchSymbols: { glyphs: { 0x41: 'square' } } },
+      symbols: { '#': { font: 'StitchSymbols', code: 0x41 } },
+      pages: [
+        { type: 'chart', cell: { width: 10, height: 10 }, grid: ['#'] },
+        {
+          type: 'legend',
+          entries: [{ symbol: '#', thread: { brand: 'DMC', code: '310' }, name: 'Black', strands: 2, count: 1 }],
+        },
+      ],
+    }),
+  )
+  vi.stubGlobal('navigator', { userAgentData: { brands: [{ brand: 'Chromium', version: '141' }] } })
+  // jsdom has no showModal; opening the dialog is all a test needs of it.
+  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
+    this.open = true
+  }
+  render(<App workspace={workspace} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Rename Winter Owl' }))
+  const dialog = screen.getByRole('dialog', { name: 'Rename Winter Owl' })
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Title' }), { target: { value: '   ' } })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+  expect(within(dialog).getByRole('alert').textContent).toBe("A chart's title can't be empty")
+  expect(screen.getByRole('dialog', { name: 'Rename Winter Owl' })).toBe(dialog)
+  expect(screen.getByRole('link', { name: 'Winter Owl' })).toBeTruthy()
 })
