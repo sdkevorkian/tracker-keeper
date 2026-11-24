@@ -332,8 +332,10 @@ export class BrowserDriver implements Driver {
     return refusal
   }
 
-  async deleteProject(name: string) {
-    await this.startDeletingProject(name)
+  async deleteProject(name: string, from: ChartPlace) {
+    const where =
+      from === 'its page' ? this.page.getByRole('main') : this.page.getByRole('list', { name: 'Your charts' })
+    await where.getByRole('button', { name: `Delete project ${name}`, exact: true }).click()
     const confirmation = this.page.getByRole('dialog')
     await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
     await expect(confirmation).toBeHidden()

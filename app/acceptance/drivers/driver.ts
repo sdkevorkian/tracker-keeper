@@ -83,7 +83,7 @@ export type Direction = 'left' | 'right' | 'up' | 'down'
 /** How the stitcher undoes and redoes: the buttons or the keyboard. */
 export type UndoControl = 'buttons' | 'keyboard'
 
-/** Where the stitcher acts on a chart from: Your charts, or its own page. */
+/** Where the stitcher acts on a chart or project from: Your charts, or its own page. */
 export type ChartPlace = 'Your charts' | 'its page'
 
 /** How the app draws a chart on screen. */
@@ -188,8 +188,11 @@ export interface Driver {
   startDeletingChart(title: string): Promise<void>
   /** Tries to delete the chart with this title from Your charts, returning why the app refused, or undefined if it didn't. */
   tryDeletingChart(title: string): Promise<string | undefined>
-  /** Deletes the project with this name from Your charts, confirming when asked. */
-  deleteProject(name: string): Promise<void>
+  /**
+   * Deletes the project with this name, confirming when asked: from Your charts,
+   * or from its own page, which the stitcher is on.
+   */
+  deleteProject(name: string, from: ChartPlace): Promise<void>
   /** Starts deleting the project with this name from Your charts, stopping at the confirmation. */
   startDeletingProject(name: string): Promise<void>
   /** The text of the confirmation on screen. */

@@ -185,11 +185,15 @@ export class WorkspaceDriver implements Driver {
     }
   }
 
-  async deleteProject(name: string) {
+  async deleteProject(name: string, from: ChartPlace) {
     const { state } = await this.open()
-    const project = [...state.projects.values()].find((listed) => listed.name === name)
-    if (!project) throw new Error(`No project named "${name}" is listed`)
+    const project =
+      from === 'its page' ? this.project() : [...state.projects.values()].find((listed) => listed.name === name)
+    if (project?.name !== name)
+      throw new Error(`No project named "${name}" is ${from === 'its page' ? 'open' : 'listed'}`)
     this.workspace.deleteProject(project.id)
+    // Its page is gone, so the stitcher is back on Your charts.
+    this.projectId = undefined
   }
 
   async startDeletingProject(): Promise<void> {

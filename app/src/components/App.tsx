@@ -138,7 +138,7 @@ function App({ workspace }: { workspace: Workspace }) {
         {importing && (
           <p role="status" className="import-status">
             <span className="spinner" aria-hidden="true" />
-            Loading chartâ€¦
+            Loading chart…
           </p>
         )}
         {error && (
@@ -286,6 +286,17 @@ function ProjectPage({
         <a className="button" href={chartHref(chart.id)}>
           {chart.title ?? 'Untitled chart'}
         </a>
+        <DeleteButton
+          name={project.name}
+          // A new project has its chart's name, so "Delete Winter Owl" could be taken for the chart.
+          label={`Delete project ${project.name}`}
+          losing="Its progress"
+          onDelete={() => {
+            // Away from its page first, so the page never shows the project missing.
+            goTo(yourChartsHref)
+            workspace.deleteProject(project.id)
+          }}
+        />
       </div>
       <div className="project-details">
         <label>

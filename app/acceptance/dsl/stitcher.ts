@@ -401,9 +401,9 @@ export class Stitcher {
     ok(/delete (it|them) first/i.test(refusal), `The refusal doesn't say to delete them first: "${refusal}"`)
   }
 
-  /** Deletes a project from Your charts, confirming when asked. */
-  async deletesProject(name: string) {
-    await this.driver.deleteProject(name)
+  /** Deletes a project, confirming when asked. From Your charts by default. */
+  async deletesProject(name: string, { from = 'Your charts' }: { from?: ChartPlace } = {}) {
+    await this.driver.deleteProject(name, from)
   }
 
   /** Starts deleting a project from Your charts, stopping when asked to confirm. */

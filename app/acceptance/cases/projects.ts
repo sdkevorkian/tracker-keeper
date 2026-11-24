@@ -189,6 +189,20 @@ export default function projectCases(test: AcceptanceTest) {
   )
 
   test(
+    "deleting a project from its own page goes back to Your charts, where it isn't listed",
+    { needs: ['import', 'chart library', 'projects', 'delete projects'] },
+    async ({ stitcher }) => {
+      await stitcher.importsChart({ grid: ['#^'], printedTitle: 'Winter Owl' })
+      await stitcher.startsProject()
+      await stitcher.renamesProject('First go')
+
+      await stitcher.deletesProject('First go', { from: 'its page' })
+
+      await stitcher.seesProjectsListed('Winter Owl', [])
+    },
+  )
+
+  test(
     'deleting a project asks first, naming it and warning its progress will be lost, and cancelling keeps it',
     { needs: ['import', 'chart library', 'projects', 'delete confirmation'] },
     async ({ stitcher }) => {
