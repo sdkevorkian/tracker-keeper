@@ -12,7 +12,7 @@ import {
   type SymbolDescription,
 } from '../../tests/support/chartPdf.ts'
 import type {
-  DeleteFrom,
+  ChartPlace,
   Direction,
   DisplayStyle,
   Driver,
@@ -211,6 +211,10 @@ export class Stitcher {
   private sourcePdfPage?: number
   /** The longest the page was blocked during the last pan and zoom around the chart. */
   private longestPanOrZoomBlock?: number
+  /** The charts the app named when told the last PDF had been imported before. */
+  private namedImportedBefore?: string[]
+  /** Why the app refused the last delete the stitcher tried, if it did. */
+  private refusal?: string
 
   constructor(driver: Driver) {
     this.driver = driver
@@ -218,6 +222,29 @@ export class Stitcher {
 
   async importsChart(chart: ChartSpec) {
     await this.driver.importPdf(chartPdf(chart))
+  }
+
+  /** Imports the same source PDF as a chart imported before, which the app stops to ask about. */
+  async importsTheSamePdfAgain(chart: ChartSpec) {
+    this.namedImportedBefore = await this.driver.importPdfImportedBefore(chartPdf(chart))
+  }
+
+  /** The app said the PDF was imported before, naming these charts. */
+  async isToldItWasImportedBefore(titles: string[]) {
+    deepStrictEqual(this.namedImportedBefore, titles)
+  }
+
+  async opensChartImportedBefore(title: string) {
+    await this.driver.openChartImportedBefore(title)
+  }
+
+  /** Imports a separate copy, under a title of their own or the one the app suggests. */
+  async importsSeparateCopy({ titled }: { titled?: string } = {}) {
+    await this.driver.importSeparateCopy(titled === undefined ? undefined : [titled])
+  }
+
+  async cancelsImport() {
+    await this.driver.cancelImport()
   }
 
   /** Imports one source PDF that holds several separate designs, one after another. */
@@ -343,8 +370,13 @@ export class Stitcher {
     await this.driver.openChart(title)
   }
 
+  /** Gives a chart a title of their own. From Your charts by default. */
+  async renamesChart(title: string, newTitle: string, { from = 'Your charts' }: { from?: ChartPlace } = {}) {
+    await this.driver.renameChart(title, newTitle, from)
+  }
+
   /** Deletes a chart, confirming when asked. From Your charts by default. */
-  async deletesChart(title: string, { from = 'Your charts' }: { from?: DeleteFrom } = {}) {
+  async deletesChart(title: string, { from = 'Your charts' }: { from?: ChartPlace } = {}) {
     await this.driver.deleteChart(title, from)
   }
 
@@ -353,7 +385,33 @@ export class Stitcher {
     await this.driver.startDeletingChart(title)
   }
 
-  /** The confirmation names the chart and says what will be lost with it. */
+  /** Tries to delete a chart from Your charts, which the app may refuse. */
+  async triesToDeleteChart(title: string) {
+    this.refusal = await this.driver.tryDeletingChart(title)
+  }
+
+  /** The app refused the last delete, saying how many projects the chart has and that they must go first. */
+  async isToldToDeleteProjectsFirst(projects: number) {
+    const refusal = this.refusal
+    ok(refusal, 'The app did not refuse the delete')
+    ok(
+      refusal.includes(`${projects} ${projects === 1 ? 'project' : 'projects'}`),
+      `The refusal doesn't say the chart has ${projects}: "${refusal}"`,
+    )
+    ok(/delete (it|them) first/i.test(refusal), `The refusal doesn't say to delete them first: "${refusal}"`)
+  }
+
+  /** Deletes a project from Your charts, confirming when asked. */
+  async deletesProject(name: string) {
+    await this.driver.deleteProject(name)
+  }
+
+  /** Starts deleting a project from Your charts, stopping when asked to confirm. */
+  async startsDeletingProject(name: string) {
+    await this.driver.startDeletingProject(name)
+  }
+
+  /** The confirmation names what's being deleted and says what will be lost with it. */
   async isAskedToConfirmDeleting(title: string, { losing }: { losing: string }) {
     const confirmation = await this.driver.deleteConfirmation()
     ok(confirmation.includes(title), `The confirmation doesn't name "${title}": "${confirmation}"`)

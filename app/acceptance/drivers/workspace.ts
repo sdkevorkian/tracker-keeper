@@ -1,10 +1,17 @@
 // Reaches the app through the headless Workspace, in-process.
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
-import { listCharts, listProjects, openWorkspace, percentDone, type Workspace } from '../../src/workspace/workspace.ts'
+import {
+  listCharts,
+  listProjects,
+  openWorkspace,
+  percentDone,
+  suggestCopyTitle,
+  type Workspace,
+} from '../../src/workspace/workspace.ts'
 import { readChartsInProcess } from '../../src/workspace/import/readCharts.ts'
 import type {
   Capability,
-  DeleteFrom,
+  ChartPlace,
   Driver,
   ShownChart,
   ShownImportIssue,
@@ -26,7 +33,10 @@ export class WorkspaceDriver implements Driver {
     'chart title',
     'reload',
     'chart library',
+    'imported before',
+    'rename charts',
     'delete charts',
+    'delete projects',
     'projects',
   ])
   /** In memory, and kept across reloads like the browser's. */
@@ -37,17 +47,54 @@ export class WorkspaceDriver implements Driver {
   private projectId?: string
   /** The charts the last import added, in the order it added them. */
   private importedIds: string[] = []
+  /** A PDF imported before, while the app asks what to do with it. */
+  private importingAgain?: { bytes: Uint8Array; ids: string[] }
 
-  async importPdf(bytes: Uint8Array) {
+  async importPdf(bytes: Uint8Array, titles?: string[]) {
     const workspace = await this.open()
     const before = new Set(workspace.state.charts.keys())
-    this.chartId = await workspace.importPdf(bytes)
+    this.chartId = await workspace.importPdf(bytes, { titles })
     this.importedIds = [...workspace.state.charts.keys()].filter((id) => !before.has(id))
+  }
+
+  async importPdfImportedBefore(bytes: Uint8Array) {
+    const ids = await (await this.open()).importedBefore(bytes)
+    if (ids.length === 0) throw new Error('This PDF has not been imported before')
+    this.importingAgain = { bytes, ids }
+    return ids.map((id) => this.workspace.state.charts.get(id)!.title ?? 'Untitled chart')
+  }
+
+  async openChartImportedBefore(title: string) {
+    const { ids } = this.importedBefore()
+    const chartId = ids.find((id) => this.workspace.state.charts.get(id)!.title === title)
+    if (!chartId) throw new Error(`No chart titled "${title}" was named as imported before`)
+    this.importingAgain = undefined
+    this.chartId = chartId
+    this.projectId = undefined
+  }
+
+  async importSeparateCopy(titles: string[] | undefined) {
+    const { bytes, ids } = this.importedBefore()
+    const { state } = this.workspace
+    this.importingAgain = undefined
+    await this.importPdf(bytes, titles ?? ids.map((id) => suggestCopyTitle(state, state.charts.get(id)!.title)))
+  }
+
+  async cancelImport() {
+    this.importedBefore()
+    this.importingAgain = undefined
+  }
+
+  /** The PDF the app said had been imported before, and the charts it named. */
+  private importedBefore() {
+    if (!this.importingAgain) throw new Error('The app is not asking about a PDF imported before')
+    return this.importingAgain
   }
 
   async reload() {
     await this.opened?.whenSaved()
     this.opened = undefined
+    this.importingAgain = undefined
     this.chartId = undefined
     this.projectId = undefined
     this.importedIds = []
@@ -116,15 +163,37 @@ export class WorkspaceDriver implements Driver {
     this.projectId = undefined
   }
 
-  async deleteChart(title: string, from: DeleteFrom) {
-    const workspace = await this.open()
-    const chart =
-      from === 'its page' ? this.chart() : listCharts(workspace.state).find((listed) => listed.title === title)
-    if (chart?.title !== title)
-      throw new Error(`No chart titled "${title}" is ${from === 'its page' ? 'open' : 'listed'}`)
-    workspace.deleteChart(chart.id)
+  async renameChart(title: string, newTitle: string, from: ChartPlace) {
+    const chart = await this.chartAt(title, from)
+    this.workspace.renameChart(chart.id, newTitle)
+  }
+
+  async deleteChart(title: string, from: ChartPlace) {
+    const chart = await this.chartAt(title, from)
+    this.workspace.deleteChart(chart.id)
     // Its page is gone, so the stitcher is back on Your charts.
     this.chartId = undefined
+  }
+
+  async tryDeletingChart(title: string) {
+    const chart = await this.chartAt(title, 'Your charts')
+    try {
+      this.workspace.deleteChart(chart.id)
+      return undefined
+    } catch (refused) {
+      return (refused as Error).message
+    }
+  }
+
+  async deleteProject(name: string) {
+    const { state } = await this.open()
+    const project = [...state.projects.values()].find((listed) => listed.name === name)
+    if (!project) throw new Error(`No project named "${name}" is listed`)
+    this.workspace.deleteProject(project.id)
+  }
+
+  async startDeletingProject(): Promise<void> {
+    throw new Error('The Workspace driver has no confirmation to stop at')
   }
 
   async startDeletingChart(): Promise<void> {
@@ -218,6 +287,16 @@ export class WorkspaceDriver implements Driver {
           return { kind: issue.kind, thread: thread(issue.entry) }
       }
     })
+  }
+
+  /** The chart with this title: the one open, or one Your charts lists. */
+  private async chartAt(title: string, from: ChartPlace) {
+    const workspace = await this.open()
+    const chart =
+      from === 'its page' ? this.chart() : listCharts(workspace.state).find((listed) => listed.title === title)
+    if (chart?.title !== title)
+      throw new Error(`No chart titled "${title}" is ${from === 'its page' ? 'open' : 'listed'}`)
+    return chart
   }
 
   private chart() {

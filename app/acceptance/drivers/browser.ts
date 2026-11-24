@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { expect, type Page } from '@playwright/test'
 import type {
   Capability,
-  DeleteFrom,
+  ChartPlace,
   Direction,
   DisplayStyle,
   Driver,
@@ -44,7 +44,10 @@ export class BrowserDriver implements Driver {
     'pan and zoom',
     'reload',
     'chart library',
+    'imported before',
+    'rename charts',
     'delete charts',
+    'delete projects',
     'delete confirmation',
     'chart pages',
     'view source PDF',
@@ -76,6 +79,46 @@ export class BrowserDriver implements Driver {
         type: 'longtask',
       })
     })
+    await this.pickPdf(bytes)
+    // As long as the app lets an import run, so a large chart is waited for.
+    await expect(this.chart()).toBeVisible({ timeout: IMPORT_TIMEOUT_MS })
+  }
+
+  async importPdfImportedBefore(bytes: Uint8Array) {
+    await this.pickPdf(bytes)
+    const dialog = this.importedBeforeDialog()
+    await expect(dialog).toBeVisible()
+    const opens = await dialog.getByRole('button', { name: /^Open / }).allTextContents()
+    return opens.map((open) => open.replace(/^Open /, ''))
+  }
+
+  async openChartImportedBefore(title: string) {
+    await this.importedBeforeDialog()
+      .getByRole('button', { name: `Open ${title}`, exact: true })
+      .click()
+    await expect(this.chart()).toBeVisible()
+  }
+
+  async importSeparateCopy(titles: string[] | undefined) {
+    const dialog = this.importedBeforeDialog()
+    const fields = await dialog.getByRole('textbox').all()
+    for (const [i, title] of (titles ?? []).entries()) await fields[i].fill(title)
+    await dialog.getByRole('button', { name: 'Import a separate copy', exact: true }).click()
+    await expect(this.chart()).toBeVisible({ timeout: IMPORT_TIMEOUT_MS })
+  }
+
+  async cancelImport() {
+    const dialog = this.importedBeforeDialog()
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(dialog).toBeHidden()
+  }
+
+  private importedBeforeDialog() {
+    return this.page.getByRole('dialog', { name: 'This PDF has been imported before' })
+  }
+
+  /** Picks a PDF to import. */
+  private async pickPdf(bytes: Uint8Array) {
     // Picked from disk like a stitcher's file. Handing Playwright the bytes instead
     // builds the file with script in the page, which blocks it.
     const file = join(await mkdtemp(join(tmpdir(), 'tracker-keeper-')), 'chart.pdf')
@@ -83,8 +126,6 @@ export class BrowserDriver implements Driver {
     const fileChooser = this.page.waitForEvent('filechooser')
     await this.page.getByRole('button', { name: 'Import' }).click()
     await (await fileChooser).setFiles(file)
-    // As long as the app lets an import run, so a large chart is waited for.
-    await expect(this.chart()).toBeVisible({ timeout: IMPORT_TIMEOUT_MS })
   }
 
   async reload() {
@@ -247,9 +288,23 @@ export class BrowserDriver implements Driver {
     return { x: canvas.left + (across - 0.5 - x) * cellSize, y: canvas.top + (down - 0.5 - y) * cellSize }
   }
 
-  async deleteChart(title: string, from: DeleteFrom) {
-    const where =
-      from === 'its page' ? this.page.getByRole('main') : this.page.getByRole('list', { name: 'Your charts' })
+  async renameChart(title: string, newTitle: string, from: ChartPlace) {
+    await this.chartActions(from)
+      .getByRole('button', { name: `Rename ${title}`, exact: true })
+      .click()
+    const dialog = this.page.getByRole('dialog', { name: `Rename ${title}`, exact: true })
+    await dialog.getByRole('textbox', { name: 'Title' }).fill(newTitle)
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(dialog).toBeHidden()
+  }
+
+  /** Where the buttons that act on a chart are: its row on Your charts, or its own page. */
+  private chartActions(from: ChartPlace) {
+    return from === 'its page' ? this.page.getByRole('main') : this.page.getByRole('list', { name: 'Your charts' })
+  }
+
+  async deleteChart(title: string, from: ChartPlace) {
+    const where = this.chartActions(from)
     await where.getByRole('button', { name: `Delete ${title}`, exact: true }).click()
     const confirmation = this.page.getByRole('dialog')
     await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
@@ -259,6 +314,34 @@ export class BrowserDriver implements Driver {
   async startDeletingChart(title: string) {
     const list = this.page.getByRole('list', { name: 'Your charts' })
     await list.getByRole('button', { name: `Delete ${title}`, exact: true }).click()
+    await expect(this.page.getByRole('dialog')).toBeVisible()
+  }
+
+  async tryDeletingChart(title: string) {
+    await this.startDeletingChart(title)
+    const dialog = this.page.getByRole('dialog')
+    const confirm = dialog.getByRole('button', { name: 'Delete', exact: true })
+    if ((await confirm.count()) > 0) {
+      await confirm.click()
+      await expect(dialog).toBeHidden()
+      return undefined
+    }
+    const refusal = (await dialog.innerText()).replace(/\s+/g, ' ')
+    await dialog.getByRole('button', { name: 'OK', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    return refusal
+  }
+
+  async deleteProject(name: string) {
+    await this.startDeletingProject(name)
+    const confirmation = this.page.getByRole('dialog')
+    await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(confirmation).toBeHidden()
+  }
+
+  async startDeletingProject(name: string) {
+    const list = this.page.getByRole('list', { name: 'Your charts' })
+    await list.getByRole('button', { name: `Delete project ${name}`, exact: true }).click()
     await expect(this.page.getByRole('dialog')).toBeVisible()
   }
 

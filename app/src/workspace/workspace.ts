@@ -15,9 +15,14 @@ export interface Workspace {
   readonly state: WorkspaceState
   /** Calls `listener` after every change. Returns a function that unsubscribes. */
   subscribe(listener: (state: WorkspaceState) => void): () => void
-  /** Imports the charts in a PDF, saves them, and returns the first one's ID. */
-  importPdf(bytes: Uint8Array): Promise<string>
-  /** Gives a chart the stitcher's own title, replacing any from its source PDF. */
+  /**
+   * Imports the charts in a PDF, saves them, and returns the first one's ID. `titles` gives each chart,
+   * in the order the PDF prints them, a title of the stitcher's own, as for a separate copy of a PDF imported before.
+   */
+  importPdf(bytes: Uint8Array, options?: { titles?: readonly string[] }): Promise<string>
+  /** The IDs of the charts already imported from this PDF, matched by its SHA-256. Adds nothing. */
+  importedBefore(bytes: Uint8Array): Promise<string[]>
+  /** Gives a chart the stitcher's own title, replacing any from its source PDF. An empty or blank title is refused. */
   renameChart(chartId: string, title: string): void
   /** Starts a project on a chart, named after it, and returns the project's ID. */
   startProject(chartId: string): string
@@ -37,6 +42,8 @@ export interface Workspace {
   canUndo(projectId: string): boolean
   /** Whether a project has an undone mark to redo. */
   canRedo(projectId: string): boolean
+  /** Deletes a project and its progress. It can't be undone. */
+  deleteProject(projectId: string): void
   /** Deletes a chart and its corrections. It can't be undone, so a chart with projects is refused. */
   deleteChart(chartId: string): void
   /** The bytes of a chart's source PDF. */
@@ -59,6 +66,22 @@ export function listProjects({ projects }: WorkspaceState, chartId: string): Pro
   return [...projects.values()]
     .filter((project) => project.chartId === chartId)
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+}
+
+/** A title for a separate copy of a chart titled `title`: that title numbered from 2, so no chart already has it. */
+export function suggestCopyTitle({ charts }: WorkspaceState, title: string | undefined) {
+  const taken = new Set([...charts.values()].map((chart) => chart.title))
+  const base = title ?? 'Untitled chart'
+  let n = 2
+  while (taken.has(`${base} (${n})`)) n++
+  return `${base} (${n})`
+}
+
+/** Why deleting a chart would be refused, or undefined when it can be deleted. A chart with projects can't be, so no progress is lost. */
+export function whyChartCantBeDeleted(state: WorkspaceState, chartId: string) {
+  const projects = listProjects(state, chartId).length
+  if (projects === 0) return undefined
+  return `This chart has ${projects} ${projects === 1 ? 'project' : 'projects'}. Delete ${projects === 1 ? 'it' : 'them'} first.`
 }
 
 /** How much of the chart's stitches are done, in whole percent rounded down, so 100 means every one. Blank cells don't count. */
@@ -206,7 +229,8 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    async importPdf(bytes) {
+    async importPdf(bytes, { titles = [] } = {}) {
+      if (titles.some(isBlank)) throw new Error(EMPTY_TITLE)
       if (!isPdf(bytes)) throw new Error("This file isn't a PDF")
       if (bytes.length > MAX_PDF_MB * 1024 * 1024) {
         throw new Error(`This PDF is too large to import (over ${MAX_PDF_MB} MB)`)
@@ -217,11 +241,12 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
       // Before the charts, so a saved chart's source PDF is always there.
       queue(() => store.addSourcePdf(pdfSha256, bytes.slice()))
       const charts = new Map(state.charts)
-      const ids = parsed.map(({ sourcePages, ...chart }) => {
+      const ids = parsed.map(({ sourcePages, ...chart }, i) => {
         const id = crypto.randomUUID()
         charts.set(id, {
           id,
           ...chart,
+          title: titles[i] ?? chart.title,
           source: { pdfSha256, pages: sourcePages },
         })
         return id
@@ -231,9 +256,14 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
       await saved
       return ids[0]
     },
+    async importedBefore(bytes) {
+      const pdfSha256 = await sha256(bytes)
+      return [...state.charts.values()].filter((chart) => chart.source.pdfSha256 === pdfSha256).map(({ id }) => id)
+    },
     renameChart(chartId, title) {
       const chart = state.charts.get(chartId)
       if (!chart) throw new Error('No such chart')
+      if (isBlank(title)) throw new Error(EMPTY_TITLE)
       update({ ...state, charts: new Map(state.charts).set(chartId, { ...chart, title }) })
     },
     startProject(chartId) {
@@ -303,15 +333,18 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
     canRedo(projectId) {
       return (histories.get(projectId)?.redo.length ?? 0) > 0
     },
+    deleteProject(projectId) {
+      projectOf(projectId)
+      const projects = new Map(state.projects)
+      projects.delete(projectId)
+      histories.delete(projectId)
+      update({ ...state, projects })
+    },
     deleteChart(chartId) {
       const chart = state.charts.get(chartId)
       if (!chart) throw new Error('No such chart')
-      const projects = listProjects(state, chartId).length
-      if (projects > 0) {
-        throw new Error(
-          `This chart has ${projects} ${projects === 1 ? 'project' : 'projects'}. Delete ${projects === 1 ? 'it' : 'them'} first.`,
-        )
-      }
+      const refusal = whyChartCantBeDeleted(state, chartId)
+      if (refusal) throw new Error(refusal)
       const charts = new Map(state.charts)
       charts.delete(chartId)
       update({ ...state, charts })
@@ -331,6 +364,12 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
       return saved
     },
   }
+}
+
+const EMPTY_TITLE = "A chart's title can't be empty"
+
+function isBlank(title: string) {
+  return title.trim() === ''
 }
 
 // PDF readers accept the header anywhere in the first 1024 bytes.

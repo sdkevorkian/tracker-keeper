@@ -194,6 +194,24 @@ h2 {
   gap: 8px;
 }
 
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+
+.dialog-field input {
+  padding: 4px 8px;
+  border: 1px solid var(--text);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  font-weight: normal;
+}
+
 .app-header-actions {
   display: flex;
   flex-wrap: wrap;

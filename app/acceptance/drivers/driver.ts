@@ -18,8 +18,14 @@ export type Capability =
   | 'reload'
   /** Listing the stored charts on the home screen, and opening one. */
   | 'chart library'
+  /** Giving a chart a title of the stitcher's own. */
+  | 'rename charts'
   /** Deleting a chart, after confirming. */
   | 'delete charts'
+  /** Being told a PDF has been imported before, and choosing to open its charts, import a separate copy or cancel. */
+  | 'imported before'
+  /** Deleting a project from Your charts, after confirming. */
+  | 'delete projects'
   /** Reading the confirmation a delete asks for, and cancelling it. */
   | 'delete confirmation'
   /** Each chart having a page of its own, which a reload stays on. */
@@ -77,8 +83,8 @@ export type Direction = 'left' | 'right' | 'up' | 'down'
 /** How the stitcher undoes and redoes: the buttons or the keyboard. */
 export type UndoControl = 'buttons' | 'keyboard'
 
-/** Where the stitcher deletes a chart from. */
-export type DeleteFrom = 'Your charts' | 'its page'
+/** Where the stitcher acts on a chart from: Your charts, or its own page. */
+export type ChartPlace = 'Your charts' | 'its page'
 
 /** How the app draws a chart on screen. */
 export type DisplayStyle = 'symbols only' | 'color blocks' | 'color with symbols'
@@ -120,6 +126,14 @@ export interface Driver {
   readonly name: string
   readonly capabilities: ReadonlySet<Capability>
   importPdf(bytes: Uint8Array): Promise<void>
+  /** Imports a PDF imported before, stopping where the app says so, and returns the titles of the charts it names. */
+  importPdfImportedBefore(bytes: Uint8Array): Promise<string[]>
+  /** Opens one of the charts the app named as imported before. */
+  openChartImportedBefore(title: string): Promise<void>
+  /** Imports a separate copy of the PDF imported before, giving its charts these titles, or keeping those suggested. */
+  importSeparateCopy(titles: string[] | undefined): Promise<void>
+  /** Cancels importing the PDF imported before. */
+  cancelImport(): Promise<void>
   /** Closes the app and opens it again, keeping what the browser stored. */
   reload(): Promise<void>
   /** The titles of the charts the home screen lists, in its order. */
@@ -163,13 +177,21 @@ export interface Driver {
   shortcutButtonFocused(): Promise<boolean>
   /** The projects the home screen lists under the chart with this title, in its order. */
   listedProjects(chartTitle: string): Promise<ShownProject[]>
+  /** Gives the chart with this title a new one: from Your charts, or from its own page, which the stitcher is on. */
+  renameChart(title: string, newTitle: string, from: ChartPlace): Promise<void>
   /**
    * Deletes the chart with this title, confirming when asked: from Your charts,
    * or from its own page, which the stitcher is on.
    */
-  deleteChart(title: string, from: DeleteFrom): Promise<void>
+  deleteChart(title: string, from: ChartPlace): Promise<void>
   /** Starts deleting the chart with this title from Your charts, stopping at the confirmation. */
   startDeletingChart(title: string): Promise<void>
+  /** Tries to delete the chart with this title from Your charts, returning why the app refused, or undefined if it didn't. */
+  tryDeletingChart(title: string): Promise<string | undefined>
+  /** Deletes the project with this name from Your charts, confirming when asked. */
+  deleteProject(name: string): Promise<void>
+  /** Starts deleting the project with this name from Your charts, stopping at the confirmation. */
+  startDeletingProject(name: string): Promise<void>
   /** The text of the confirmation on screen. */
   deleteConfirmation(): Promise<string>
   cancelDelete(): Promise<void>
