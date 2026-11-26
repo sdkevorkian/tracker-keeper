@@ -92,24 +92,45 @@ h2 {
 }
 
 /* Above the chart: entries wrap into columns, and a long legend scrolls on its own so the chart stays near. */
+/* One column on a phone, more as the window widens, so each entry has room to read. */
 .legend-panel {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 4px;
+  grid-template-columns: 1fr;
+  gap: 2px 12px;
   max-height: 30vh;
   margin: 12px 0 0;
   padding: 0;
   overflow-y: auto;
   list-style: none;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+}
+
+@media (min-width: 640px) {
+  .legend-panel {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1000px) {
+  .legend-panel {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1400px) {
+  .legend-panel {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 .legend-entry {
   display: grid;
-  grid-template-columns: 24px 16px 1fr auto;
+  grid-template-columns: 20px 12px 1fr auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  padding: 4px 8px;
+  padding: 3px 6px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: none;
@@ -132,8 +153,8 @@ h2 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border: 1px solid var(--text);
   background: #ffffff;
   color: #000000;
@@ -145,8 +166,8 @@ h2 {
 }
 
 .legend-swatch {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border: 1px solid var(--text);
   border-radius: 3px;
 }

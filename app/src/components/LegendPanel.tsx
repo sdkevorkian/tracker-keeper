@@ -61,7 +61,7 @@ export function LegendPanel({
 }
 
 /** How many pixels across the panel draws a symbol, before the screen's pixel ratio. */
-const SYMBOL_SIZE = 22
+const SYMBOL_SIZE = 18
 
 /** A cut symbol drawn on a small canvas. Not an image, since the Content Security Policy refuses `data:` URLs. */
 function SymbolCanvas({ symbol }: { symbol: HTMLCanvasElement }) {
