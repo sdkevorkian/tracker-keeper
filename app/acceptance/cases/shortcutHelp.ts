@@ -34,6 +34,7 @@ export default function shortcutHelpCases(test: AcceptanceTest) {
         'Mark stitches done as the cursor moves',
         'Undo the last mark',
         'Redo',
+        'Clear the highlighted legend entry',
       ])
     },
   )

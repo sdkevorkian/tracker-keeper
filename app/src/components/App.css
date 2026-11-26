@@ -9,9 +9,11 @@
 }
 
 main {
-  max-width: 720px;
+  /* Wide, so the chart can use a large screen. */
+  max-width: 1600px;
   margin: 0 auto;
-  padding: 48px 20px;
+  /* Wide side gutters: the chart takes the wheel for zooming, so the page scrolls from beside it. */
+  padding: 48px clamp(24px, 6vw, 96px);
 }
 
 h1,
@@ -75,7 +77,9 @@ h2 {
 .chart-view {
   display: block;
   width: 100%;
-  height: 70vh;
+  /* The whole window high: the page scrolls to it, and the chart fills the screen. */
+  height: 100vh;
+  height: 100dvh;
   margin-top: 8px;
   border: 1px solid var(--text);
   touch-action: none;
@@ -85,6 +89,76 @@ h2 {
 .chart-view:focus-visible {
   outline: 3px solid var(--primary);
   outline-offset: 2px;
+}
+
+/* Above the chart: entries wrap into columns, and a long legend scrolls on its own so the chart stays near. */
+.legend-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 4px;
+  max-height: 30vh;
+  margin: 12px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.legend-entry {
+  display: grid;
+  grid-template-columns: 24px 16px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-h);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.legend-entry:hover {
+  border-color: var(--text);
+}
+
+.legend-entry[aria-pressed='true'] {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.legend-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--text);
+  background: #ffffff;
+  color: #000000;
+}
+
+.legend-symbol canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.legend-swatch {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--text);
+  border-radius: 3px;
+}
+
+.legend-names {
+  color: var(--text);
+  font-size: 0.875em;
+}
+
+.legend-left {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
 .import-error {

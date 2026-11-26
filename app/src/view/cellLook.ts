@@ -1,10 +1,10 @@
 // How one cell looks in each display style. A plain function, so the styles
 // are tested without pixels; the canvas only paints what it says.
 import type { LegendEntry } from '../workspace/chart.ts'
+import type { DisplayStyle } from '../workspace/project.ts'
 import type { Detail } from './detail.ts'
 
-/** How the app draws a chart. A viewing choice: switching it never changes the chart. */
-export type DisplayStyle = 'symbols only' | 'color blocks' | 'color with symbols'
+export type { DisplayStyle }
 
 /** A cell's background, and the ink its symbol is drawn in, or no symbol. */
 export interface CellLook {

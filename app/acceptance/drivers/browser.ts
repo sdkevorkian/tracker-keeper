@@ -58,6 +58,9 @@ export class BrowserDriver implements Driver {
     'undo buttons',
     'cell cursor',
     'shortcut help',
+    'legend panel',
+    'project display styles',
+    'highlight',
   ])
 
   private page: Page
@@ -142,6 +145,43 @@ export class BrowserDriver implements Driver {
 
   async goToYourCharts() {
     await this.page.getByRole('link', { name: 'Your charts' }).click()
+  }
+
+  async openProject(name: string) {
+    const projects = this.page.getByRole('list', { name: /^Projects of / })
+    await projects.getByRole('link', { name, exact: true }).click()
+    await expect(this.percentDoneText()).toBeVisible()
+  }
+
+  async stitchesLeft() {
+    const entries = await this.legendPanel().getByRole('button').all()
+    const left: Record<string, number> = {}
+    for (const entry of entries) {
+      const name = (await entry.getAttribute('aria-label')) ?? ''
+      const parts = /^(.+), (\d+) left$/.exec(name)
+      if (!parts) throw new Error(`A legend entry doesn't say its thread and stitches left: "${name}"`)
+      left[parts[1]] = Number(parts[2])
+    }
+    return left
+  }
+
+  async tabToLegendEntry(thread: string) {
+    // Matched by prefix, not a pattern, since a blend's threads are joined with '+'.
+    const entry = this.legendPanel().locator(`button[aria-label^="${thread}, "]`)
+    await this.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    for (let press = 0; press < MOST_TABS_TO_CHART; press++) {
+      await this.page.keyboard.press('Tab')
+      if (await entry.evaluate((button) => button === document.activeElement)) return
+    }
+    throw new Error(`The legend entry for ${thread} wasn't reached after ${MOST_TABS_TO_CHART} presses of Tab`)
+  }
+
+  async highlighted() {
+    return /, highlighting (.+?)(?:,|$)/.exec(await this.chartLabel())?.[1]
+  }
+
+  private legendPanel() {
+    return this.page.getByRole('list', { name: 'Legend', exact: true })
   }
 
   async openChart(title: string) {

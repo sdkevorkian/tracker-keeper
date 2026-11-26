@@ -4,9 +4,10 @@ import type { Chart } from '../workspace/chart.ts'
 import { DONE, WHITE_FABRIC } from '../workspace/project.ts'
 import type { CellPosition } from './cells.ts'
 import { cellLook, type DisplayStyle } from './cellLook.ts'
-import { detailAt, gridLineWeight, type GridLineWeight } from './detail.ts'
+import { detailAt, gridLineWeight, type Detail, type GridLineWeight } from './detail.ts'
 import { fallbackSymbol } from './fallbackSymbol.ts'
-import { SYMBOL_INSET, type SymbolImages } from './symbolImages.ts'
+import { dimmedCells } from './highlight.ts'
+import { SYMBOL_INSET, type SymbolImage, type SymbolImages } from './symbolImages.ts'
 import { visibleCells, type CellRange, type Size, type Viewport } from './viewport.ts'
 
 /** What every layer draws from. */
@@ -29,7 +30,12 @@ export interface ProjectLook {
   /** One state per cell, as in a project's progress. */
   progress: Uint8Array
   cursor?: CellPosition
+  /** The legend entry highlighted, numbered from 1 as in the chart's cells; every other entry's stitches are dimmed. */
+  highlighted?: number
 }
+
+/** How much of the fabric color is laid over a dimmed stitch: enough to set the highlighted entry apart, not hide the rest. */
+const HIGHLIGHT_DIMMING = 0.75
 
 /** How much of the done color is laid over a done stitch, so it stands out but its symbol stays readable. */
 const DONE_DIMMING = 0.7
@@ -44,30 +50,28 @@ const GRID: Record<GridLineWeight, { color: string; width: number }> = {
   thick: { color: 'rgba(0, 0, 0, 0.6)', width: 2 },
 }
 
-/** Each chart's colors, one pixel a stitch, made the first time it's drawn zoomed out. */
-const colorImages = new WeakMap<Chart, HTMLCanvasElement>()
+/** Each chart's cell fills, one pixel a stitch, by how they're drawn, made the first time each is needed. */
+const fillImages = new WeakMap<Chart, Map<string, HTMLCanvasElement>>()
 
 /**
- * The chart as it looks zoomed out, one pixel a stitch. Zoomed out, every display style
- * shows color only, so one image serves them all, and drawing it scaled is one call
- * however many stitches are on screen.
+ * Every cell's fill in `style` at the zoom that gives `detail`, one pixel a stitch, so drawing it scaled is one call
+ * however many stitches are on screen. Zoomed out, every display style shows color only, so one image serves them all.
  */
-function colorImage(chart: Chart) {
-  let image = colorImages.get(chart)
+function fillImage(chart: Chart, style: DisplayStyle, detail: Detail) {
+  const key = detail.symbols ? style : 'zoomed out'
+  let images = fillImages.get(chart)
+  if (!images) fillImages.set(chart, (images = new Map()))
+  let image = images.get(key)
   if (image) return image
-  const zoomedOut = { symbols: false, gridLines: false }
-  // Each legend entry's color once, as [r, g, b, a]; a blank cell is clear, so the fabric shows through.
-  const colors = [
-    [0, 0, 0, 0],
-    ...chart.legend.map((entry) => [...rgb(cellLook(entry, 'color blocks', zoomedOut).fill), 255]),
-  ]
+  // Each legend entry's fill once, as [r, g, b, a]; a blank cell is clear, so the fabric shows through.
+  const colors = [[0, 0, 0, 0], ...chart.legend.map((entry) => [...rgb(cellLook(entry, style, detail).fill), 255])]
   const pixels = new ImageData(chart.width, chart.height)
   chart.cells.forEach((entry, i) => pixels.data.set(colors[entry] ?? colors[0], i * 4))
   image = document.createElement('canvas')
   image.width = chart.width
   image.height = chart.height
   image.getContext('2d')!.putImageData(pixels, 0, 0)
-  colorImages.set(chart, image)
+  images.set(key, image)
   return image
 }
 
@@ -84,7 +88,7 @@ const fabricLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, proj
 /** Each project's done stitches, one pixel a stitch, made each time its progress changes. */
 const doneImages = new WeakMap<Uint8Array, { color: string; image: HTMLCanvasElement }>()
 
-/** Done stitches in the done color, one pixel a stitch, so zoomed out they're marked in one call. */
+/** Done stitches in the done color, one pixel a stitch, so they're marked in one call. */
 function doneImage({ progress, doneColor }: ProjectLook, chart: Chart) {
   const made = doneImages.get(progress)
   if (made?.color === doneColor) return made.image
@@ -100,28 +104,54 @@ function doneImage({ progress, doneColor }: ProjectLook, chart: Chart) {
 }
 
 /** Done stitches, under a wash of the done color. */
-const progressLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, cells, project }) => {
+const progressLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, project }) => {
   if (!project) return
   context.save()
   context.globalAlpha = DONE_DIMMING
-  if (!detailAt(cellSize).symbols) {
-    context.imageSmoothingEnabled = false
-    context.drawImage(
-      doneImage(project, chart),
-      -x * cellSize,
-      -y * cellSize,
-      chart.width * cellSize,
-      chart.height * cellSize,
-    )
-  } else {
-    context.fillStyle = project.doneColor
-    for (let row = cells.top; row < cells.bottom; row++) {
-      for (let column = cells.left; column < cells.right; column++) {
-        if (project.progress[row * chart.width + column] !== DONE) continue
-        context.fillRect((column - x) * cellSize, (row - y) * cellSize, cellSize, cellSize)
-      }
-    }
-  }
+  // One call at any zoom, sharp-edged: marking each done stitch alone is too slow with thousands on screen.
+  context.imageSmoothingEnabled = false
+  context.drawImage(
+    doneImage(project, chart),
+    -x * cellSize,
+    -y * cellSize,
+    chart.width * cellSize,
+    chart.height * cellSize,
+  )
+  context.restore()
+}
+
+/** Each chart's dimmed cells while one entry is highlighted, one pixel a stitch, made each time the highlight changes. */
+const dimImages = new WeakMap<Chart, { entry: number; fabric: string; image: HTMLCanvasElement }>()
+
+/** The stitches dimmed by a highlight, in the fabric color, one pixel a stitch, so they're dimmed in one call. */
+function dimImage(chart: Chart, entry: number, fabric: string) {
+  const made = dimImages.get(chart)
+  if (made?.entry === entry && made.fabric === fabric) return made.image
+  const color = [...rgb(fabric), 255]
+  const pixels = new ImageData(chart.width, chart.height)
+  dimmedCells(chart.cells, entry).forEach((dimmed, i) => dimmed && pixels.data.set(color, i * 4))
+  const image = document.createElement('canvas')
+  image.width = chart.width
+  image.height = chart.height
+  image.getContext('2d')!.putImageData(pixels, 0, 0)
+  dimImages.set(chart, { entry, fabric, image })
+  return image
+}
+
+/** Every other entry's stitches, under a wash of the fabric color, while one entry is highlighted. */
+const highlightLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, project }) => {
+  if (project?.highlighted === undefined) return
+  context.save()
+  context.globalAlpha = HIGHLIGHT_DIMMING
+  // One call at any zoom, sharp-edged, like the done stitches.
+  context.imageSmoothingEnabled = false
+  context.drawImage(
+    dimImage(chart, project.highlighted, project.fabricColor),
+    -x * cellSize,
+    -y * cellSize,
+    chart.width * cellSize,
+    chart.height * cellSize,
+  )
   context.restore()
 }
 
@@ -142,38 +172,66 @@ const selectionLayer: Layer = (context, { viewport: { x, y, cellSize }, project 
 const cellsLayer: Layer = (context, { chart, viewport: { x, y, cellSize }, cells, style, symbols }) => {
   const { left, top, right, bottom } = cells
   const detail = detailAt(cellSize)
-  if (!detail.symbols) {
-    // Sharp-edged stitches, not a blur between them.
-    context.imageSmoothingEnabled = false
-    context.drawImage(colorImage(chart), -x * cellSize, -y * cellSize, chart.width * cellSize, chart.height * cellSize)
-    return
-  }
-  context.font = `${Math.round(cellSize * 0.6)}px system-ui, sans-serif`
-  context.textAlign = 'center'
-  context.textBaseline = 'middle'
+  // Every fill in one call, sharp-edged, not a blur between stitches. Drawing each cell's fill alone is too slow
+  // to pan smoothly with thousands of stitches on a large canvas.
+  context.imageSmoothingEnabled = false
+  context.drawImage(
+    fillImage(chart, style, detail),
+    -x * cellSize,
+    -y * cellSize,
+    chart.width * cellSize,
+    chart.height * cellSize,
+  )
+  context.imageSmoothingEnabled = true
+  if (!detail.symbols) return
+  // Each entry's symbols in one fill: a path through its cells on screen, painted with its symbol repeated a cell
+  // apart. Drawing each cell's symbol alone is too slow to pan smoothly with thousands of stitches on screen.
+  const paths = chart.legend.map(() => new Path2D())
   for (let row = top; row < bottom; row++) {
     for (let column = left; column < right; column++) {
       const entry = chart.cells[row * chart.width + column]
       // Blank cells show the fabric.
-      if (entry === 0) continue
-      const { fill, symbol } = cellLook(entry === 0 ? undefined : chart.legend[entry - 1], style, detail)
-      const px = (column - x) * cellSize
-      const py = (row - y) * cellSize
-      context.fillStyle = fill
-      context.fillRect(px, py, cellSize, cellSize)
-      if (!symbol) continue
-      const image = symbols.get(entry)
-      if (image) {
-        // Cut inset from the cell's grid lines, so drawn back at the same inset.
-        const inset = cellSize * SYMBOL_INSET
-        const drawn = cellSize - 2 * inset
-        context.drawImage(symbol === '#ffffff' ? image.white : image.black, px + inset, py + inset, drawn, drawn)
-      } else {
-        context.fillStyle = symbol
-        context.fillText(fallbackSymbol(entry), px + cellSize / 2, py + cellSize / 2)
-      }
+      if (entry !== 0) paths[entry - 1].rect((column - x) * cellSize, (row - y) * cellSize, cellSize, cellSize)
     }
   }
+  // A whole number of device pixels a tile, scaled back to exactly a cell, so the symbols never drift off their cells.
+  const tilePixels = Math.max(1, Math.round(cellSize * context.getTransform().a))
+  const placed = new DOMMatrix().translateSelf(-x * cellSize, -y * cellSize).scaleSelf(cellSize / tilePixels)
+  chart.legend.forEach((legendEntry, i) => {
+    const ink = cellLook(legendEntry, style, detail).symbol
+    if (!ink) return
+    const pattern = context.createPattern(symbolTile(i + 1, ink, symbols.get(i + 1), tilePixels), 'repeat')
+    if (!pattern) return
+    pattern.setTransform(placed)
+    context.fillStyle = pattern
+    context.fill(paths[i])
+  })
+}
+
+/** One cell's symbol, `pixels` across, on a clear tile: the symbol as printed, or a built-in one in `ink`. */
+function symbolTile(entry: number, ink: string, image: SymbolImage | undefined, pixels: number) {
+  const tile = document.createElement('canvas')
+  tile.width = pixels
+  tile.height = pixels
+  const context = tile.getContext('2d')!
+  if (image) {
+    // Cut inset from the cell's grid lines, so drawn back at the same inset.
+    const inset = pixels * SYMBOL_INSET
+    context.drawImage(
+      ink === '#ffffff' ? image.white : image.black,
+      inset,
+      inset,
+      pixels - 2 * inset,
+      pixels - 2 * inset,
+    )
+  } else {
+    context.font = `${Math.round(pixels * 0.6)}px system-ui, sans-serif`
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+    context.fillStyle = ink
+    context.fillText(fallbackSymbol(entry), pixels / 2, pixels / 2)
+  }
+  return tile
 }
 
 /** Thin lines first, so the thick lines every 10 stitches draw over them where they cross. */
@@ -202,7 +260,7 @@ const gridLayer: Layer = (context, { viewport: { x, y, cellSize }, cells: { left
   }
 }
 
-const LAYERS: Layer[] = [fabricLayer, cellsLayer, progressLayer, gridLayer, selectionLayer]
+const LAYERS: Layer[] = [fabricLayer, cellsLayer, progressLayer, highlightLayer, gridLayer, selectionLayer]
 
 /** Draws the visible part of `chart` in `style` on a canvas `size` CSS pixels across, with the project's progress if there is one. */
 export function drawChart(

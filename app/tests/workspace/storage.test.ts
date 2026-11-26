@@ -31,11 +31,12 @@ function storedSourcePdfCount({ indexedDB }: ReturnType<typeof inMemoryDatabase>
 function saveAsNewerApp({ indexedDB }: ReturnType<typeof inMemoryDatabase>) {
   return new Promise<void>((resolve, reject) => {
     // Dexie keeps schema version n as IndexedDB version n × 10.
-    const request = indexedDB.open('tracker-keeper', 20)
+    const request = indexedDB.open('tracker-keeper', 90)
     request.onerror = () => reject(request.error)
     request.onupgradeneeded = () => {
       const db = request.result
-      for (const name of ['sourcePdfs', 'charts', 'projects']) db.createObjectStore(name)
+      // Every store this version has, as a newer version keeps them.
+      for (const name of ['sourcePdfs', 'charts', 'projects', 'settings']) db.createObjectStore(name)
       db.createObjectStore('threadStash').put({ thread: 'DMC 310', skeins: 2 }, 'DMC 310')
     }
     request.onsuccess = () => {
@@ -137,4 +138,41 @@ test('data saved by a newer version of the app is refused and left as it was', a
   await expect(open(database)).rejects.toThrow(/newer version of tracker-keeper/)
 
   expect(await snapshot(database)).toEqual(before)
+})
+
+/** What the first version of the app saved: one project, from before projects kept a display style. */
+function saveAsFirstVersion({ indexedDB }: ReturnType<typeof inMemoryDatabase>) {
+  return new Promise<void>((resolve, reject) => {
+    // Dexie keeps schema version n as IndexedDB version n × 10.
+    const request = indexedDB.open('tracker-keeper', 10)
+    request.onerror = () => reject(request.error)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      db.createObjectStore('sourcePdfs', { keyPath: 'sha256' })
+      db.createObjectStore('charts', { keyPath: 'id' })
+      db.createObjectStore('projects', { keyPath: 'id' }).put({
+        id: 'first-go',
+        chartId: 'winter-owl',
+        name: 'First go',
+        startedAt: '2026-11-01T10:00:00.000Z',
+        fabricColor: '#ffffff',
+        doneColor: '#5bbf6a',
+        progress: new Uint8Array([1, 0]),
+      })
+    }
+    request.onsuccess = () => {
+      request.result.close()
+      resolve()
+    }
+  })
+}
+
+test('a project saved before projects kept a display style opens in color with symbols, its progress kept', async () => {
+  const database = inMemoryDatabase()
+  await saveAsFirstVersion(database)
+
+  const project = (await open(database)).state.projects.get('first-go')!
+
+  expect(project.displayStyle).toBe('color with symbols')
+  expect([...project.progress]).toEqual([1, 0])
 })

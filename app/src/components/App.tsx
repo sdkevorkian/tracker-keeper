@@ -189,6 +189,8 @@ function ChartPage({
   const chartId = chart?.id
   // The same function while the same chart is open, so its symbols are cut once.
   const sourcePdf = useCallback(() => workspace.sourcePdf(chartId!), [workspace, chartId])
+  // Outside a project, a viewing choice for this visit only, starting from the one used most recently.
+  const [displayStyle, setDisplayStyle] = useState(() => workspace.state.displayStyle)
   return (
     <>
       <div className="chart-page-actions">
@@ -225,6 +227,8 @@ function ChartPage({
           chart={chart}
           sourcePdf={sourcePdf}
           onViewSourcePdf={(page) => openSourcePdf(sourcePdf, page)}
+          displayStyle={displayStyle}
+          onDisplayStyle={setDisplayStyle}
         />
       ) : (
         <p>This chart isn't stored in this browser.</p>
@@ -346,6 +350,8 @@ function ProjectPage({
         chart={chart}
         sourcePdf={sourcePdf}
         onViewSourcePdf={(page) => openSourcePdf(sourcePdf, page)}
+        displayStyle={project.displayStyle}
+        onDisplayStyle={(style) => workspace.setDisplayStyle(project.id, style)}
         marking={{
           fabricColor: project.fabricColor,
           doneColor: project.doneColor,

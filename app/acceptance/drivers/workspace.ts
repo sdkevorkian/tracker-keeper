@@ -5,6 +5,7 @@ import {
   listProjects,
   openWorkspace,
   percentDone,
+  stitchesLeft,
   suggestCopyTitle,
   type Workspace,
 } from '../../src/workspace/workspace.ts'
@@ -12,6 +13,7 @@ import { readChartsInProcess } from '../../src/workspace/import/readCharts.ts'
 import type {
   Capability,
   ChartPlace,
+  DisplayStyle,
   Driver,
   ShownChart,
   ShownImportIssue,
@@ -38,6 +40,8 @@ export class WorkspaceDriver implements Driver {
     'delete charts',
     'delete projects',
     'projects',
+    'legend panel',
+    'project display styles',
   ])
   /** In memory, and kept across reloads like the browser's. */
   private database = { indexedDB: new IDBFactory(), IDBKeyRange }
@@ -154,6 +158,22 @@ export class WorkspaceDriver implements Driver {
       name: project.name,
       percentDone: percentDone(chart, project),
     }))
+  }
+
+  async openProject(name: string) {
+    const { state } = await this.open()
+    const project = [...state.projects.values()].find((listed) => listed.name === name)
+    if (!project) throw new Error(`No project named "${name}" is listed`)
+    this.chartId = project.chartId
+    this.projectId = project.id
+  }
+
+  async stitchesLeft() {
+    const chart = this.chart()
+    const left = stitchesLeft(chart, this.project())
+    return Object.fromEntries(
+      chart.legend.map(({ threads }, i) => [threads.map(({ brand, code }) => `${brand} ${code}`).join(' + '), left[i]]),
+    )
   }
 
   async openChart(title: string) {
@@ -325,11 +345,20 @@ export class WorkspaceDriver implements Driver {
     throw new Error('The Workspace driver has no view of the chart')
   }
 
-  async displayStyle(): Promise<never> {
-    throw new Error('The Workspace driver has no view of the chart')
+  /** Only a project's: outside one, how the chart is drawn is up to the view. */
+  async displayStyle() {
+    return this.project().displayStyle
   }
 
-  async switchDisplayStyle() {
+  async switchDisplayStyle(style: DisplayStyle) {
+    this.workspace.setDisplayStyle(this.project().id, style)
+  }
+
+  async tabToLegendEntry() {
+    throw new Error('The Workspace driver has no keyboard')
+  }
+
+  async highlighted(): Promise<never> {
     throw new Error('The Workspace driver has no view of the chart')
   }
 

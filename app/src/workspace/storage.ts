@@ -1,7 +1,7 @@
 // Where the Workspace keeps its state between visits: IndexedDB, through Dexie.
 import { Dexie, type EntityTable } from 'dexie'
 import type { Chart } from './chart.ts'
-import type { Project } from './project.ts'
+import { DEFAULT_DISPLAY_STYLE, type Project } from './project.ts'
 
 /** Which IndexedDB to use: the browser's in the app, an in-memory one in tests. */
 export interface Database {
@@ -12,7 +12,13 @@ export interface Database {
 const DATABASE_NAME = 'tracker-keeper'
 
 /** The version of what this app stores. A change to the stores needs a new one, with an upgrade from the last. */
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
+
+/** One app-wide setting, such as the display style used most recently. */
+export interface StoredSetting {
+  key: string
+  value: unknown
+}
 
 interface StoredSourcePdf {
   /** The source PDF's SHA-256, as lowercase hex. */
@@ -24,10 +30,22 @@ export class Storage extends Dexie {
   sourcePdfs!: EntityTable<StoredSourcePdf, 'sha256'>
   charts!: EntityTable<Chart, 'id'>
   projects!: EntityTable<Project, 'id'>
+  settings!: EntityTable<StoredSetting, 'key'>
 
   constructor(database: Database) {
     super(DATABASE_NAME, database)
-    this.version(SCHEMA_VERSION).stores({ sourcePdfs: 'sha256', charts: 'id', projects: 'id' })
+    this.version(1).stores({ sourcePdfs: 'sha256', charts: 'id', projects: 'id' })
+    // Projects keep their own display style, and the app keeps the one used most recently.
+    this.version(2)
+      .stores({ settings: 'key' })
+      .upgrade((transaction) =>
+        transaction
+          .table<Project>('projects')
+          .toCollection()
+          .modify((project) => {
+            project.displayStyle ??= DEFAULT_DISPLAY_STYLE
+          }),
+      )
   }
 }
 

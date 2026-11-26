@@ -2,13 +2,24 @@
 // only sends commands and draws the state it subscribes to.
 import type { Chart } from './chart.ts'
 import type { ReadCharts } from './import/readCharts.ts'
-import { DEFAULT_DONE_COLOR, DONE, NOT_DONE, WHITE_FABRIC, type Project } from './project.ts'
+import {
+  DEFAULT_DISPLAY_STYLE,
+  DEFAULT_DONE_COLOR,
+  DONE,
+  NOT_DONE,
+  WHITE_FABRIC,
+  isDisplayStyle,
+  type DisplayStyle,
+  type Project,
+} from './project.ts'
 import type { EntityTable, IDType } from 'dexie'
 import { openStorage, type Database } from './storage.ts'
 
 export interface WorkspaceState {
   charts: ReadonlyMap<string, Chart>
   projects: ReadonlyMap<string, Project>
+  /** The display style used most recently, which new projects start in. */
+  displayStyle: DisplayStyle
 }
 
 export interface Workspace {
@@ -32,6 +43,8 @@ export interface Workspace {
   setFabricColor(projectId: string, color: string): void
   /** Sets the color a project's done stitches are marked in, as `#rrggbb`. */
   setDoneColor(projectId: string, color: string): void
+  /** Sets how a project's chart is drawn. */
+  setDisplayStyle(projectId: string, style: DisplayStyle): void
   /** Marks cells of a project done or not done. Blank cells are left as they are. */
   markCells(projectId: string, cells: readonly number[], done: boolean): void
   /** Takes back a project's last mark, if it has one to take back. */
@@ -84,6 +97,15 @@ export function whyChartCantBeDeleted(state: WorkspaceState, chartId: string) {
   return `This chart has ${projects} ${projects === 1 ? 'project' : 'projects'}. Delete ${projects === 1 ? 'it' : 'them'} first.`
 }
 
+/** How many stitches each legend entry has not yet done in a project, in legend order. */
+export function stitchesLeft(chart: Chart, project: Pick<Project, 'progress'>) {
+  const left = chart.legend.map(() => 0)
+  chart.cells.forEach((entry, cell) => {
+    if (entry !== 0 && project.progress[cell] !== DONE) left[entry - 1]++
+  })
+  return left
+}
+
 /** How much of the chart's stitches are done, in whole percent rounded down, so 100 means every one. Blank cells don't count. */
 export function percentDone(chart: Chart, project: Project) {
   let stitches = 0
@@ -115,17 +137,25 @@ export interface StoredWorkspaceOptions extends WorkspaceOptions {
   database: Database
 }
 
+/** The setting the display style used most recently is kept under. */
+const DISPLAY_STYLE_SETTING = 'displayStyle'
+
 /** Opens the Workspace saved in `database`, which then saves every change back to it. */
 export async function openWorkspace({ database, ...options }: StoredWorkspaceOptions): Promise<Workspace> {
   const storage = await openStorage(database)
   const charts = new Map((await storage.charts.toArray()).map((chart) => [chart.id, chart]))
   const projects = new Map((await storage.projects.toArray()).map((project) => [project.id, project]))
+  const savedStyle = (await storage.settings.get(DISPLAY_STYLE_SETTING))?.value
+  const displayStyle = isDisplayStyle(savedStyle) ? savedStyle : DEFAULT_DISPLAY_STYLE
   return createWorkspace(options, {
-    state: { charts, projects },
+    state: { charts, projects, displayStyle },
     save: (before, after) =>
-      storage.transaction('rw', storage.charts, storage.projects, async () => {
+      storage.transaction('rw', storage.charts, storage.projects, storage.settings, async () => {
         await saveChanges(storage.charts, before.charts, after.charts)
         await saveChanges(storage.projects, before.projects, after.projects)
+        if (after.displayStyle !== before.displayStyle) {
+          await storage.settings.put({ key: DISPLAY_STYLE_SETTING, value: after.displayStyle })
+        }
       }),
     addSourcePdf: async (pdfSha256, bytes) => {
       await storage.sourcePdfs.put({ sha256: pdfSha256, bytes })
@@ -162,7 +192,7 @@ interface Store {
 function memoryStore(): Store {
   const sourcePdfs = new Map<string, Uint8Array>()
   return {
-    state: { charts: new Map(), projects: new Map() },
+    state: { charts: new Map(), projects: new Map(), displayStyle: DEFAULT_DISPLAY_STYLE },
     save: async () => {},
     addSourcePdf: async (pdfSha256, bytes) => {
       sourcePdfs.set(pdfSha256, bytes)
@@ -277,6 +307,7 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
         startedAt: new Date().toISOString(),
         fabricColor: WHITE_FABRIC,
         doneColor: DEFAULT_DONE_COLOR,
+        displayStyle: state.displayStyle,
         progress: new Uint8Array(chart.cells.length).fill(NOT_DONE),
       }
       update({ ...state, projects: new Map(state.projects).set(id, project) })
@@ -293,6 +324,10 @@ export function createWorkspace({ readCharts }: WorkspaceOptions, store: Store =
     setDoneColor(projectId, doneColor) {
       const project = projectOf(projectId)
       update({ ...state, projects: new Map(state.projects).set(projectId, { ...project, doneColor }) })
+    },
+    setDisplayStyle(projectId, displayStyle) {
+      const project = projectOf(projectId)
+      update({ ...state, projects: new Map(state.projects).set(projectId, { ...project, displayStyle }), displayStyle })
     },
     markCells(projectId, cells, done) {
       const project = projectOf(projectId)
