@@ -370,6 +370,29 @@ export class Stitcher {
     await this.driver.openChart(title)
   }
 
+  /** Opens a project from Your charts. */
+  async opensProject(name: string) {
+    await this.driver.openProject(name)
+  }
+
+  /** The legend panel's stitches left for each entry, by thread such as 'DMC 310'. */
+  async seesStitchesLeft(expected: Record<string, number>) {
+    deepStrictEqual(await this.driver.stitchesLeft(), expected)
+  }
+
+  async tabsToLegendEntry(thread: string) {
+    await this.driver.tabToLegendEntry(thread)
+  }
+
+  /** The chart shows this thread's legend entry highlighted, and the others dimmed. */
+  async seesHighlighted(thread: string) {
+    deepStrictEqual(await this.driver.highlighted(), thread)
+  }
+
+  async seesNothingHighlighted() {
+    deepStrictEqual(await this.driver.highlighted(), undefined)
+  }
+
   /** Gives a chart a title of their own. From Your charts by default. */
   async renamesChart(title: string, newTitle: string, { from = 'Your charts' }: { from?: ChartPlace } = {}) {
     await this.driver.renameChart(title, newTitle, from)

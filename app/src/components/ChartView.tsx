@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { cellAt, cellsBetween, cursorForKey, viewportShowing, type CellPosition } from '../view/cells.ts'
-import type { DisplayStyle } from '../view/cellLook.ts'
 import { drawChart } from '../view/draw.ts'
 import { loadCursor, loadView, saveCursor, saveView } from '../view/savedView.ts'
 import { pageForView } from '../view/sourcePage.ts'
@@ -19,9 +18,10 @@ import {
   type Size,
 } from '../view/viewport.ts'
 import type { Chart } from '../workspace/chart.ts'
-import { DONE, NOT_DONE } from '../workspace/project.ts'
-
-const DISPLAY_STYLES: DisplayStyle[] = ['symbols only', 'color blocks', 'color with symbols']
+import { DISPLAY_STYLES, DONE, NOT_DONE, type DisplayStyle } from '../workspace/project.ts'
+import { stitchesLeft } from '../workspace/workspace.ts'
+import { isTextField } from './shortcuts.ts'
+import { LegendPanel, threadsOf } from './LegendPanel.tsx'
 
 /** Drawn while symbols are being cut from the source PDF: every entry's built-in symbol. */
 const NO_SYMBOL_IMAGES: SymbolImages = new Map()
@@ -56,6 +56,9 @@ interface ChartViewProps {
   marking?: Marking
   /** What the view is saved under, so reopening this page shows the chart zoomed and panned as it was. */
   viewKey: string
+  /** How the chart is drawn, and switching it. */
+  displayStyle: DisplayStyle
+  onDisplayStyle: (style: DisplayStyle) => void
 }
 
 /** Where a pointer is on the canvas, in canvas pixels. */
@@ -73,7 +76,15 @@ function sameCell(a: CellPosition, b: CellPosition) {
  * In a project, a click or drag marks stitches instead of panning, until the stitcher switches to Pan, and the
  * arrow keys move a cell cursor that the keyboard marks with.
  */
-export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking, viewKey }: ChartViewProps) {
+export function ChartView({
+  chart,
+  sourcePdf,
+  onViewSourcePdf,
+  marking,
+  viewKey,
+  displayStyle: style,
+  onDisplayStyle,
+}: ChartViewProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState<Size>({ width: 0, height: 0 })
   // Undefined until the stitcher pans or zooms, unless this page saved a view; until then the whole chart is fitted to the canvas.
@@ -81,8 +92,8 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking, viewKey 
   const viewport = movedViewport ?? fitChart(size, chart)
   // Each finger or mouse button down on the chart, where it last was in canvas pixels. One drags; two pinch.
   const pointers = useRef(new Map<number, Point>())
-  // Kept per project once projects keep it; for now each opening starts in color with symbols.
-  const [style, setStyle] = useState<DisplayStyle>('color with symbols')
+  // The legend entry highlighted, numbered from 1 as in the chart's cells. Only while the page is open.
+  const [highlighted, setHighlighted] = useState<number>()
   // Undefined while they're being cut.
   const [symbols, setSymbols] = useState<SymbolImages>()
   const [pointerMode, setPointerMode] = useState<PointerMode>('mark')
@@ -109,6 +120,18 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking, viewKey 
   }, [progress, markDrag, chartWidth])
   const fabricColor = marking?.fabricColor
   const doneColor = marking?.doneColor
+  const entriesLeft = useMemo(() => (progress ? stitchesLeft(chart, { progress }) : undefined), [chart, progress])
+
+  // Escape clears the highlight from anywhere on the page but a text field or an open dialog, which have their own.
+  useEffect(() => {
+    if (highlighted === undefined) return
+    const onEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || isTextField(event.target) || document.querySelector('dialog[open]')) return
+      setHighlighted(undefined)
+    }
+    window.addEventListener('keydown', onEscape)
+    return () => window.removeEventListener('keydown', onEscape)
+  }, [highlighted])
 
   // Cut each legend entry's symbol from the source PDF. If that fails, built-in symbols stand in for them all.
   // The chart view is keyed by chart, so this runs once per chart opened.
@@ -164,10 +187,10 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking, viewKey 
     context.setTransform(scale, 0, 0, scale, 0, 0)
     const project =
       shownProgress && fabricColor !== undefined && doneColor !== undefined
-        ? { progress: shownProgress, fabricColor, doneColor, cursor }
+        ? { progress: shownProgress, fabricColor, doneColor, cursor, highlighted }
         : undefined
     drawChart(context, chart, viewport, size, style, symbols ?? NO_SYMBOL_IMAGES, project)
-  }, [chart, viewport, size, style, symbols, shownProgress, fabricColor, doneColor, cursor])
+  }, [chart, viewport, size, style, symbols, shownProgress, fabricColor, doneColor, cursor, highlighted])
 
   /** Moves the cell cursor, scrolling the view to keep it in sight. */
   function moveCursor(to: CellPosition) {
@@ -204,9 +227,11 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking, viewKey 
     ? `${symbols.size} symbols as printed and ${chart.legend.length - symbols.size} built in`
     : 'symbols loading'
   const cursorShown = marking ? `, cursor on stitch ${cursor.column + 1} across and ${cursor.row + 1} down` : ''
+  const highlightShown =
+    highlighted === undefined ? '' : `, highlighting ${threadsOf(chart.legend[highlighted - 1])}, others dimmed`
   const label =
     `Chart, ${chart.width} by ${chart.height} stitches, in ${style}, ` +
-    `showing stitches ${left + 1} to ${right} across and ${top + 1} to ${bottom} down, ${symbolsShown}${cursorShown}`
+    `showing stitches ${left + 1} to ${right} across and ${top + 1} to ${bottom} down, ${symbolsShown}${cursorShown}${highlightShown}`
 
   return (
     <>
@@ -253,13 +278,23 @@ export function ChartView({ chart, sourcePdf, onViewSourcePdf, marking, viewKey 
                 name="display-style"
                 value={option}
                 checked={style === option}
-                onChange={() => setStyle(option)}
+                onChange={() => onDisplayStyle(option)}
               />
               {option[0].toUpperCase() + option.slice(1)}
             </label>
           ))}
         </fieldset>
       </div>
+      {marking && entriesLeft && (
+        <LegendPanel
+          legend={chart.legend}
+          stitchesLeft={entriesLeft}
+          symbols={symbols ?? NO_SYMBOL_IMAGES}
+          style={style}
+          highlighted={highlighted}
+          onHighlight={setHighlighted}
+        />
+      )}
       <canvas
         ref={canvas}
         className={marks ? 'chart-view chart-view-marking' : 'chart-view'}

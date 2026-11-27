@@ -41,6 +41,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
     shortcuts: [
       { keys: ['Ctrl + Z'], does: 'Undo the last mark' },
       { keys: ['Ctrl + Shift + Z', 'Ctrl + Y'], does: 'Redo' },
+      { keys: ['Escape'], does: 'Clear the highlighted legend entry' },
     ],
   },
 ]

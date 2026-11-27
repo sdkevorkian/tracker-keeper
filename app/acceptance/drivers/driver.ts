@@ -44,6 +44,12 @@ export type Capability =
   | 'undo buttons'
   /** Moving a cell cursor over the chart with the keyboard, and marking with it. */
   | 'cell cursor'
+  /** Reading how many stitches each legend entry has left in the open project. */
+  | 'legend panel'
+  /** Switching the open project's display style, and reading it back. */
+  | 'project display styles'
+  /** Highlighting one legend entry from the legend panel, and reading which is highlighted. */
+  | 'highlight'
   /** Opening the list of keyboard shortcuts. */
   | 'shortcut help'
 
@@ -142,6 +148,14 @@ export interface Driver {
   goToYourCharts(): Promise<void>
   /** Opens the chart with this title from the home screen. */
   openChart(title: string): Promise<void>
+  /** Opens the project with this name from Your charts. */
+  openProject(name: string): Promise<void>
+  /** How many stitches each legend entry of the open project has left, by thread such as 'DMC 310'. */
+  stitchesLeft(): Promise<Record<string, number>>
+  /** Presses Tab until the legend entry for this thread has focus, failing if it never does. */
+  tabToLegendEntry(thread: string): Promise<void>
+  /** The thread of the highlighted legend entry, such as 'DMC 310', or undefined when none is. */
+  highlighted(): Promise<string | undefined>
   /** Starts a project on the chart the stitcher is looking at, and opens it. */
   startProject(): Promise<void>
   /** Gives the open project a name of the stitcher's own. */
