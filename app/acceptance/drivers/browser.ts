@@ -132,6 +132,8 @@ export class BrowserDriver implements Driver {
   }
 
   async reload() {
+    // Reloading while a change is still being saved would lose it, which a stitcher's reload a moment later wouldn't.
+    await expect(this.page.locator('html')).not.toHaveAttribute('data-saving')
     await this.page.reload()
     await expect(this.page.getByRole('heading', { name: 'tracker-keeper', level: 1 })).toBeVisible()
   }
@@ -150,6 +152,8 @@ export class BrowserDriver implements Driver {
   async openProject(name: string) {
     const projects = this.page.getByRole('list', { name: /^Projects of / })
     await projects.getByRole('link', { name, exact: true }).click()
+    // Your charts shows each project's percent done too, so wait until it has given way to the project's page.
+    await expect(this.page.getByRole('textbox', { name: 'Project name' })).toHaveValue(name)
     await expect(this.percentDoneText()).toBeVisible()
   }
 
