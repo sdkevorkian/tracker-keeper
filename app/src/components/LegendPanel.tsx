@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { cellLook, type DisplayStyle } from '../view/cellLook.ts'
 import { fallbackSymbol } from '../view/fallbackSymbol.ts'
 import type { SymbolImages } from '../view/symbolImages.ts'
 import type { LegendEntry } from '../workspace/chart.ts'
@@ -9,13 +10,14 @@ export function threadsOf({ threads }: LegendEntry) {
 }
 
 /**
- * The project's legend: each entry's symbol, threads and color, and how many stitches it has left.
+ * The project's legend: each entry as a cell looks in the display style, its threads, and how many stitches it has left.
  * Each entry is a button that highlights it, and pressing the highlighted one again clears it.
  */
 export function LegendPanel({
   legend,
   stitchesLeft,
   symbols,
+  style,
   highlighted,
   onHighlight,
 }: {
@@ -23,6 +25,8 @@ export function LegendPanel({
   /** In legend order. */
   stitchesLeft: number[]
   symbols: SymbolImages
+  /** Each entry's cell is drawn as the chart draws it in this style. */
+  style: DisplayStyle
   /** The highlighted entry, numbered from 1 as in a chart's cells, or undefined when none is. */
   highlighted?: number
   onHighlight: (entry: number | undefined) => void
@@ -34,6 +38,8 @@ export function LegendPanel({
         const threads = threadsOf(entry)
         const names = entry.threads.flatMap(({ name }) => (name ? [name] : [])).join(' + ')
         const image = symbols.get(number)
+        // As a cell looks zoomed in, since the legend is always big enough to read its symbol.
+        const look = cellLook(entry, style, { symbols: true, gridLines: true })
         return (
           <li key={number}>
             <button
@@ -43,10 +49,14 @@ export function LegendPanel({
               aria-label={`${threads}, ${stitchesLeft[i]} left`}
               onClick={() => onHighlight(highlighted === number ? undefined : number)}
             >
-              <span className="legend-symbol" aria-hidden="true">
-                {image ? <SymbolCanvas symbol={image.black} /> : fallbackSymbol(number)}
+              <span className="legend-cell" style={{ background: look.fill, color: look.symbol }} aria-hidden="true">
+                {look.symbol &&
+                  (image ? (
+                    <SymbolCanvas symbol={look.symbol === '#ffffff' ? image.white : image.black} />
+                  ) : (
+                    fallbackSymbol(number)
+                  ))}
               </span>
-              <span className="legend-swatch" style={{ background: entry.color ?? 'transparent' }} aria-hidden="true" />
               <span className="legend-threads">
                 {threads}
                 {names && <span className="legend-names"> {names}</span>}

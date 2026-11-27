@@ -290,6 +290,7 @@ export function ChartView({
           legend={chart.legend}
           stitchesLeft={entriesLeft}
           symbols={symbols ?? NO_SYMBOL_IMAGES}
+          style={style}
           highlighted={highlighted}
           onHighlight={setHighlighted}
         />
